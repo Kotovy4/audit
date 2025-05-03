@@ -4,7 +4,6 @@ from supabase import create_client, Client # Бібліотека для роб�
 from datetime import datetime
 import locale
 import os # Для роботи з секретами
-# import sqlite3 # Видаляємо, якщо використовуємо тільки Supabase
 
 # --- Налаштування локалі для відображення гривні ---
 try:
@@ -62,6 +61,7 @@ def load_items_from_db():
         st.error("Немає підключення до Supabase для завантаження товарів.")
         return []
     try:
+        # Вибираємо всі стовпці з таблиці items
         response = supabase.table('items').select('*').order('id').execute()
         if response.data:
             items_with_history = []
@@ -78,7 +78,6 @@ def load_items_from_db():
         st.error(f"Помилка завантаження товарів з БД: {e}")
         return []
 
-# Ця функція не кешується окремо, бо викликається з load_items_from_db, яка кешується
 def load_sales_history_for_item(item_id):
     """Завантажує історію продажів для конкретного товару."""
     if not supabase:
@@ -90,10 +89,9 @@ def load_sales_history_for_item(item_id):
         print(f"Помилка завантаження історії продажів для товару {item_id}: {e}")
         return []
 
-# Визначення функції ДО її першого виклику
 def get_item_by_db_id(db_id):
     """Знаходить словник товару в кеші inventory_list за його ID з бази даних."""
-    items = load_items_from_db() # Використовуємо кешовані дані
+    items = load_items_from_db()
     for item in items:
         if item.get('id') == db_id:
             return item
@@ -110,13 +108,11 @@ def get_item_sales_info_cached(item_data):
     for sale in sales_history:
         qty = sale.get('quantity_sold', 0)
         price = sale.get('price_per_unit_uah', 0.0)
-        # Додаємо перевірку типів на всяк випадок
         if isinstance(qty, (int, float)) and isinstance(price, (int, float)):
              total_sold_qty += qty
              total_sales_value += qty * price
         else:
              print(f"Попередження: некоректні типи даних у записі продажу: qty={qty}, price={price}")
-
 
     average_sell_price = total_sales_value / total_sold_qty if total_sold_qty > 0 else 0.0
     return total_sold_qty, average_sell_price
@@ -184,7 +180,7 @@ def display_add_item_form():
                 try:
                     response = supabase.table('items').insert({
                         "name": name,
-                        "initial_quantity": initial_quantity,
+                        "initial_quantity": initial_quantity, # Використовуємо правильну назву колонки
                         "cost_usd": cost_usd,
                         "shipping_usd": shipping_usd,
                         "rate": rate,
@@ -208,8 +204,8 @@ def display_edit_item_form(item_data):
     st.subheader(f"Редагувати товар: {item_data.get('name', 'Н/Д')}")
     with st.form("edit_item_form"):
         name = st.text_input("Назва товару*", value=item_data.get('name', ''), key=f"edit_name_{item_data['id']}")
+        # Використовуємо правильну назву колонки 'initial_quantity'
         initial_quantity = st.number_input("Початкова кількість*", min_value=1, step=1, value=item_data.get('initial_quantity', 1), key=f"edit_qty_{item_data['id']}")
-        # Виправлення TypeError: Явно перетворюємо значення на float
         cost_usd = st.number_input("Вартість ($)", min_value=0.0, step=0.01, format="%.2f", value=float(item_data.get('cost_usd', 0.0)), key=f"edit_cost_{item_data['id']}")
         shipping_usd = st.number_input("Доставка ($)", min_value=0.0, step=0.01, format="%.2f", value=float(item_data.get('shipping_usd', 0.0)), key=f"edit_ship_{item_data['id']}")
         rate = st.number_input("Курс $/грн*", min_value=0.01, step=0.01, format="%.4f", value=float(item_data.get('rate', 0.0)), key=f"edit_rate_{item_data['id']}")
@@ -240,7 +236,7 @@ def display_edit_item_form(item_data):
                 try:
                     response = supabase.table('items').update({
                         "name": name,
-                        "initial_quantity": initial_quantity,
+                        "initial_quantity": initial_quantity, # Використовуємо правильну назву колонки
                         "cost_usd": cost_usd,
                         "shipping_usd": shipping_usd,
                         "rate": rate,
@@ -285,11 +281,13 @@ def display_items_view():
 
     for item in items_data:
         # Пошук
+        # Використовуємо правильний ключ 'name'
         if search_term_lower and search_term_lower not in item.get('name', '').lower():
             continue
 
         # Розрахунок для фільтрації
-        initial_qty = item.get('кількість', 0)
+        # Використовуємо правильний ключ 'initial_quantity'
+        initial_qty = item.get('initial_quantity', 0) # <--- ВИПРАВЛЕНО
         sold_qty, avg_price = get_item_sales_info_cached(item)
         remaining_qty = initial_qty - sold_qty
         has_sales = sold_qty > 0
@@ -311,9 +309,13 @@ def display_items_view():
     if filtered_items:
         display_data = []
         for item in filtered_items:
+            # Використовуємо правильний ключ 'name'
+            item_name = item.get('name') # <--- ВИПРАВЛЕНО
+            display_name = item_name if item_name else 'Без назви'
+
             display_data.append({
                 "ID": item['id'],
-                "Назва": item.get('назва', ''),
+                "Назва": display_name,
                 "Залишок": item['remaining_qty'],
                 "Вартість (₴)": format_currency(item.get('cost_uah', 0.0)),
                 "Мито (₴)": format_currency(item.get('customs_uah', 0.0)),
@@ -325,18 +327,18 @@ def display_items_view():
         st.dataframe(df, hide_index=True, use_container_width=True)
 
         st.write("Дії з вибраним товаром:")
-        item_options = {item['id']: f"{item['id']}: {item.get('назва', 'Без назви')}" for item in filtered_items}
+        # Формуємо опції для selectbox з правильним ключем 'name'
+        item_options = {item['id']: f"{item['id']}: {item.get('name') if item.get('name') else 'Без назви'}" for item in filtered_items} # <--- ВИПРАВЛЕНО
         current_selection_id = st.session_state.get('selected_item_id', None)
         if current_selection_id not in item_options:
              current_selection_id = None
 
-        # Встановлюємо індекс за замовчуванням на 0, якщо немає вибору або вибір недійсний
         default_index = 0
         if current_selection_id and current_selection_id in item_options:
              try:
                  default_index = list(item_options.keys()).index(current_selection_id)
              except ValueError:
-                 default_index = 0 # Якщо ID не знайдено в ключах (малоймовірно)
+                 default_index = 0
 
         selected_id = st.selectbox(
              "Виберіть товар (ID: Назва)",
@@ -387,8 +389,10 @@ def display_items_view():
         # --- Підтвердження видалення товару ---
         if 'confirm_delete_id' in st.session_state and st.session_state.confirm_delete_id is not None:
              item_to_delete = get_item_by_db_id(st.session_state.confirm_delete_id)
-             item_name = item_to_delete.get('назва', 'Н/Д') if item_to_delete else 'Н/Д'
-             st.warning(f"**Ви впевнені, що хочете видалити товар '{item_name}' (ID: {st.session_state.confirm_delete_id}) та всю його історію продажів?**")
+             # Використовуємо правильний ключ 'name'
+             item_name = item_to_delete.get('name') if item_to_delete else 'Н/Д' # <--- ВИПРАВЛЕНО
+             display_delete_name = item_name if item_name else 'Без назви'
+             st.warning(f"**Ви впевнені, що хочете видалити товар '{display_delete_name}' (ID: {st.session_state.confirm_delete_id}) та всю його історію продажів?**")
              c1, c2, _ = st.columns([1,1,5])
              if c1.button("Так, видалити", key="confirm_delete_yes"):
                   db_id_to_delete = st.session_state.confirm_delete_id
@@ -398,7 +402,7 @@ def display_items_view():
                       return
                   try:
                       response = supabase.table('items').delete().eq('id', db_id_to_delete).execute()
-                      st.success(f"Товар '{item_name}' видалено.")
+                      st.success(f"Товар '{display_delete_name}' видалено.")
                       st.cache_data.clear()
                       st.session_state.selected_item_id = None
                       st.rerun()
@@ -414,8 +418,10 @@ def display_items_view():
 
 def display_sell_item_form(item_data):
     """Відображає форму для продажу одиниць товару."""
-    st.subheader(f"Продаж товару: {item_data.get('назва', 'Н/Д')}")
-    initial_qty = item_data.get('кількість', 0)
+    # Використовуємо правильний ключ 'name'
+    st.subheader(f"Продаж товару: {item_data.get('name', 'Н/Д')}") # <--- ВИПРАВЛЕНО
+    # Використовуємо правильний ключ 'initial_quantity'
+    initial_qty = item_data.get('initial_quantity', 0) # <--- ВИПРАВЛЕНО
     sold_qty, avg_price = get_item_sales_info_cached(item_data)
     available_qty = initial_qty - sold_qty
 
@@ -427,7 +433,7 @@ def display_sell_item_form(item_data):
         if item_data.get('sales_history'):
             last_sale_price = item_data['sales_history'][-1].get('price_per_unit_uah')
         suggested_price = last_sale_price if last_sale_price is not None else avg_price
-        unit_sell_price = st.number_input("Ціна за одиницю (грн)*", min_value=0.0, step=0.01, format="%.2f", value=float(suggested_price) if suggested_price > 0 else 0.01, key="sell_price") # Явне перетворення на float
+        unit_sell_price = st.number_input("Ціна за одиницю (грн)*", min_value=0.0, step=0.01, format="%.2f", value=float(suggested_price) if suggested_price > 0 else 0.01, key="sell_price")
 
         col1, col2 = st.columns(2)
         with col1:
@@ -455,7 +461,8 @@ def display_sell_item_form(item_data):
                     }).execute()
 
                     if response.data:
-                        st.success(f"Продано {quantity_to_sell} од. товару '{item_data.get('назва', '')}'.")
+                        # Використовуємо правильний ключ 'name'
+                        st.success(f"Продано {quantity_to_sell} од. товару '{item_data.get('name', '')}'.") # <--- ВИПРАВЛЕНО
                         st.cache_data.clear()
                         st.session_state.selling_item_id = None
                         st.rerun()
@@ -470,7 +477,8 @@ def display_sell_item_form(item_data):
 
 def display_sales_history(item_data):
     """Відображає історію продажів для товару та кнопки управління."""
-    st.subheader(f"Історія продажів: {item_data.get('назва', 'Н/Д')}")
+    # Використовуємо правильний ключ 'name'
+    st.subheader(f"Історія продажів: {item_data.get('name', 'Н/Д')}") # <--- ВИПРАВЛЕНО
     sales_history = item_data.get('sales_history', [])
 
     if not sales_history:
@@ -555,8 +563,10 @@ def display_sales_history(item_data):
 
 def display_edit_sale_form(item_data, sale_data):
     """Відображає форму для редагування конкретного продажу."""
-    st.subheader(f"Редагувати продаж ID: {sale_data['id']} для товару: {item_data.get('назва', 'Н/Д')}")
-    initial_item_qty = item_data.get('кількість', 0)
+    # Використовуємо правильний ключ 'name'
+    st.subheader(f"Редагувати продаж ID: {sale_data['id']} для товару: {item_data.get('name', 'Н/Д')}") # <--- ВИПРАВЛЕНО
+    # Використовуємо правильний ключ 'initial_quantity'
+    initial_item_qty = item_data.get('initial_quantity', 0) # <--- ВИПРАВЛЕНО
 
     with st.form("edit_sale_form"):
         quantity_sold = st.number_input(
@@ -571,7 +581,7 @@ def display_edit_sale_form(item_data, sale_data):
             min_value=0.0,
             step=0.01,
             format="%.2f",
-            value=float(sale_data.get('price_per_unit_uah', 0.0)), # Явне перетворення
+            value=float(sale_data.get('price_per_unit_uah', 0.0)),
             key=f"edit_sale_price_{sale_data['id']}"
         )
 
@@ -636,7 +646,8 @@ def display_statistics():
     unsold_items_cost = 0.0
 
     for item in items_data:
-        initial_qty = item.get('кількість', 0)
+        # Використовуємо правильний ключ 'initial_quantity'
+        initial_qty = item.get('initial_quantity', 0) # <--- ВИПРАВЛЕНО
         cost_uah = item.get('вартість_uah', 0.0)
         customs_uah = item.get('мито_uah', 0.0)
         unit_cost = (cost_uah + customs_uah) / initial_qty if initial_qty > 0 else 0
@@ -692,7 +703,8 @@ def display_statistics():
                    break
 
     if selected_item_data:
-        s_initial_qty = selected_item_data.get('кількість', 0)
+        # Використовуємо правильний ключ 'initial_quantity'
+        s_initial_qty = selected_item_data.get('initial_quantity', 0) # <--- ВИПРАВЛЕНО
         s_cost_uah = selected_item_data.get('вартість_uah', 0.0)
         s_customs_uah = selected_item_data.get('мито_uah', 0.0)
         s_sales_history = selected_item_data.get('sales_history', [])
@@ -704,7 +716,8 @@ def display_statistics():
         s_remaining_qty = s_initial_qty - s_sold_qty
         s_profit_loss = s_income - (s_sold_qty * s_unit_cost) if s_sold_qty > 0 else None
 
-        st.write(f"**Назва:** {selected_item_data.get('назва', 'Н/Д')}")
+        # Використовуємо правильний ключ 'name'
+        st.write(f"**Назва:** {selected_item_data.get('name', 'Н/Д')}") # <--- ВИПРАВЛЕНО
         col1, col2, col3 = st.columns(3)
         col1.metric("Початкова к-сть", s_initial_qty)
         col2.metric("Продано к-сть", s_sold_qty)
@@ -740,13 +753,12 @@ view_choice = st.sidebar.radio(
 # Визначаємо поточний вид на основі стану
 if view_choice == 'Додати товар':
     st.session_state.current_view = 'add_item'
-    # Скидаємо інші стани
     st.session_state.editing_item_id = None
     st.session_state.selling_item_id = None
     st.session_state.viewing_history_item_id = None
     st.session_state.editing_sale_id = None
     st.session_state.show_statistics = False
-else: # Якщо вибрано 'Перегляд товарів' або нічого не вибрано
+else:
     if st.session_state.get('editing_item_id') is not None:
         st.session_state.current_view = 'edit_item'
     elif st.session_state.get('selling_item_id') is not None:
@@ -758,7 +770,7 @@ else: # Якщо вибрано 'Перегляд товарів' або ніч�
               st.session_state.current_view = 'view_history'
     elif st.session_state.get('show_statistics'):
          st.session_state.current_view = 'statistics'
-    else: # За замовчуванням показуємо список
+    else:
         st.session_state.current_view = 'view_items'
 
 
