@@ -1,0 +1,23 @@
+# Бази даних
+*.db
+*.sqlite
+*.sqlite3
+
+# Віртуальні середовища
+venv/
+.venv/
+env/
+.env/
+
+# Кеш Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Файли IDE/редакторів
+.vscode/
+.idea/
+
+# Файли Streamlit secrets (ВАЖЛИВО!)
+.streamlit/secrets.toml
