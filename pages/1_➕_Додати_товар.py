@@ -1,9 +1,11 @@
 import streamlit as st
+from datetime import datetime
 # Імпортуємо спільні функції та клієнт supabase з основного файлу
 try:
     from apppp import (
         supabase,
-        calculate_uah_cost
+        calculate_uah_cost,
+        format_currency # Може знадобитись для відображення розрахункової ціни
     )
 except ImportError:
     st.error("Помилка імпорту: Не вдалося знайти основний файл 'apppp.py' або необхідні функції.")
@@ -21,6 +23,10 @@ def display_add_item_form():
         customs_uah = st.number_input("Митний платіж (грн)", min_value=0.0, step=0.01, format="%.2f", key="add_customs")
         description = st.text_area("Опис", key="add_desc")
 
+        # Розрахунок вартості UAH для відображення (необов'язково)
+        # cost_uah_calculated = calculate_uah_cost(cost_usd, shipping_usd, rate)
+        # st.text(f"Розрахункова вартість (грн): {format_currency(cost_uah_calculated)}")
+
         submitted = st.form_submit_button("Додати товар")
         if submitted:
             if not supabase:
@@ -30,6 +36,7 @@ def display_add_item_form():
             if not name or not initial_quantity or not rate:
                 st.warning("Будь ласка, заповніть обов'язкові поля: Назва, Початкова к-сть, Курс.")
             else:
+                # Перераховуємо вартість UAH перед збереженням
                 cost_uah = calculate_uah_cost(cost_usd, shipping_usd, rate)
                 try:
                     response = supabase.table('items').insert({
@@ -45,8 +52,8 @@ def display_add_item_form():
 
                     if response.data:
                         st.success(f"Товар '{name}' успішно додано!")
-                        st.cache_data.clear() # Очищуємо кеш, щоб інші сторінки побачили зміни
-                        # Немає потреби в rerun, форма очиститься автоматично
+                        st.cache_data.clear() # Очищуємо кеш
+                        # Форма очиститься сама завдяки clear_on_submit=True
                     else:
                          st.error(f"Помилка при додаванні товару: {getattr(response, 'error', 'Невідома помилка')}")
 
@@ -54,6 +61,7 @@ def display_add_item_form():
                     st.error(f"Помилка бази даних при додаванні товару: {e}")
 
 # --- Головна частина сторінки ---
-st.header("➕ Додати новий товар")
+# Заголовок буде взято з назви файлу "1_➕_Додати_товар"
+# st.header("➕ Додати новий товар")
 display_add_item_form()
 

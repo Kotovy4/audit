@@ -2,13 +2,10 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 # Імпортуємо спільні функції та клієнт supabase з основного файлу
-# Припускаємо, що основний файл називається apppp.py
-# Якщо він називається інакше, змініть імпорт
 try:
     from apppp import (
         supabase,
         load_items_from_db,
-        load_sales_history_for_item, # Можливо, не потрібен тут напряму
         get_item_by_db_id,
         get_item_sales_info_cached,
         format_currency,
@@ -16,12 +13,10 @@ try:
     )
 except ImportError:
     st.error("Помилка імпорту: Не вдалося знайти основний файл 'apppp.py' або необхідні функції.")
-    # Можна додати альтернативні шляхи імпорту, якщо структура інша
-    # from ..apppp import ... # Якщо pages на одному рівні з apppp.py
     st.stop()
 
 
-# --- Функції для відображення форм (перенесені сюди) ---
+# --- Функції для відображення форм (визначені ДО їх виклику) ---
 
 def display_edit_item_form(item_data):
     """Відображає форму для редагування товару."""
@@ -35,7 +30,7 @@ def display_edit_item_form(item_data):
         customs_uah = st.number_input("Митний платіж (грн)", min_value=0.0, step=0.01, format="%.2f", value=float(item_data.get('customs_uah', 0.0)), key=f"edit_customs_{item_data['id']}")
         description = st.text_area("Опис", value=item_data.get('description', ''), key=f"edit_desc_{item_data['id']}")
 
-        sold_qty, _ = get_item_sales_info_cached(item_data) # Використовуємо кешовану історію
+        sold_qty, _ = get_item_sales_info_cached(item_data)
         if sold_qty > 0:
             st.caption(f"(Вже продано: {sold_qty} од.)")
 
@@ -43,7 +38,6 @@ def display_edit_item_form(item_data):
         with col1:
              submitted = st.form_submit_button("Зберегти зміни")
         with col2:
-             # Кнопка скасування просто скидає стан редагування
              cancelled = st.form_submit_button("Скасувати")
 
         if submitted:
@@ -72,16 +66,16 @@ def display_edit_item_form(item_data):
                     if response.data:
                         st.success(f"Дані товару '{name}' оновлено!")
                         st.cache_data.clear()
-                        st.session_state.editing_item_id = None # Скидаємо стан редагування
-                        st.rerun() # Перезапускаємо, щоб повернутися до таблиці
+                        st.session_state.editing_item_id = None
+                        st.rerun()
                     else:
                         st.error(f"Помилка при оновленні товару: {getattr(response, 'error', 'Невідома помилка')}")
 
                 except Exception as e:
                     st.error(f"Помилка бази даних при оновленні товару: {e}")
         if cancelled:
-             st.session_state.editing_item_id = None # Скидаємо стан редагування
-             st.rerun() # Перезапускаємо, щоб повернутися до таблиці
+             st.session_state.editing_item_id = None
+             st.rerun()
 
 def display_sell_item_form(item_data):
     """Відображає форму для продажу одиниць товару."""
@@ -104,7 +98,6 @@ def display_sell_item_form(item_data):
         with col1:
             submitted = st.form_submit_button("Зареєструвати продаж")
         with col2:
-            # Кнопка скасування просто скидає стан продажу
             cancelled = st.form_submit_button("Скасувати")
 
         if submitted:
@@ -129,16 +122,16 @@ def display_sell_item_form(item_data):
                     if response.data:
                         st.success(f"Продано {quantity_to_sell} од. товару '{item_data.get('name', '')}'.")
                         st.cache_data.clear()
-                        st.session_state.selling_item_id = None # Скидаємо стан продажу
-                        st.rerun() # Перезапускаємо, щоб повернутися до таблиці
+                        st.session_state.selling_item_id = None
+                        st.rerun()
                     else:
                          st.error(f"Помилка при реєстрації продажу: {getattr(response, 'error', 'Невідома помилка')}")
 
                 except Exception as e:
                     st.error(f"Помилка бази даних при реєстрації продажу: {e}")
         if cancelled:
-            st.session_state.selling_item_id = None # Скидаємо стан продажу
-            st.rerun() # Перезапускаємо, щоб повернутися до таблиці
+            st.session_state.selling_item_id = None
+            st.rerun()
 
 def display_sales_history(item_data):
     """Відображає історію продажів для товару та кнопки управління."""
@@ -147,8 +140,7 @@ def display_sales_history(item_data):
 
     if not sales_history:
         st.info("Історія продажів для цього товару порожня.")
-        # Кнопка Назад просто скидає стан перегляду історії
-        if st.button("Назад до списку товарів", key="back_from_empty_history"):
+        if st.button("Назад до списку", key="back_from_empty_history"):
             st.session_state.viewing_history_item_id = None
             st.rerun()
         return
@@ -184,30 +176,26 @@ def display_sales_history(item_data):
     )
     selected_sale_id = int(selected_sale_id_str) if selected_sale_id_str else None
 
-    col1, col2, col3 = st.columns([1,1,4]) # Змінено пропорції
+    col1, col2, col3 = st.columns([1,1,4])
     with col1:
-         # Кнопка редагування встановлює відповідний стан
          if st.button("Редагувати", key="edit_sale_btn", disabled=selected_sale_id is None):
              st.session_state.editing_sale_id = selected_sale_id
-             st.session_state.editing_sale_item_id = item_data['id'] # Зберігаємо ID товару
-             st.rerun() # Перезапуск покаже форму редагування продажу (на цій же сторінці)
+             st.session_state.editing_sale_item_id = item_data['id']
+             st.rerun()
     with col2:
         if st.button("Видалити", key="delete_sale_btn", disabled=selected_sale_id is None):
-             # Встановлюємо стан для підтвердження видалення
              st.session_state.confirm_delete_sale_id = selected_sale_id
              st.session_state.confirm_delete_sale_item_id = item_data['id']
-             st.rerun() # Перезапуск покаже запит на підтвердження
+             st.rerun()
 
     # --- Підтвердження видалення продажу ---
     if 'confirm_delete_sale_id' in st.session_state and st.session_state.confirm_delete_sale_id is not None:
-        # Перевіряємо, чи ID товару все ще той самий (про всяк випадок)
         if st.session_state.confirm_delete_sale_item_id == item_data['id']:
             sale_id_to_delete = st.session_state.confirm_delete_sale_id
             st.warning(f"**Ви впевнені, що хочете видалити запис про продаж ID: {sale_id_to_delete}?**")
             c1, c2, _ = st.columns([1,1,5])
             if c1.button("Так, видалити продаж", key="confirm_delete_sale_yes"):
                 item_id_for_update = st.session_state.confirm_delete_sale_item_id
-                # Скидаємо стан підтвердження ДО операції з БД
                 st.session_state.confirm_delete_sale_id = None
                 st.session_state.confirm_delete_sale_item_id = None
                 if not supabase:
@@ -217,7 +205,6 @@ def display_sales_history(item_data):
                     response = supabase.table('sales').delete().eq('id', sale_id_to_delete).execute()
                     st.success(f"Запис про продаж ID: {sale_id_to_delete} видалено.")
                     st.cache_data.clear()
-                    # Залишаємось на сторінці історії, просто оновлюємо її
                     st.session_state.viewing_history_item_id = item_id_for_update
                     st.rerun()
                 except Exception as e:
@@ -228,15 +215,12 @@ def display_sales_history(item_data):
                 st.session_state.confirm_delete_sale_item_id = None
                 st.rerun()
         else:
-             # Якщо ID товару змінився, поки було відкрито підтвердження, скидаємо стан
              st.session_state.confirm_delete_sale_id = None
              st.session_state.confirm_delete_sale_item_id = None
 
-
-    # Кнопка Назад до списку товарів
     if st.button("Назад до списку товарів", key="back_from_history"):
-        st.session_state.viewing_history_item_id = None # Скидаємо стан
-        st.rerun() # Перезапуск поверне до таблиці
+        st.session_state.viewing_history_item_id = None
+        st.rerun()
 
 def display_edit_sale_form(item_data, sale_data):
     """Відображає форму для редагування конкретного продажу."""
@@ -271,7 +255,6 @@ def display_edit_sale_form(item_data, sale_data):
         with col1:
             submitted = st.form_submit_button("Зберегти зміни продажу")
         with col2:
-            # Кнопка скасування скидає стан редагування продажу
             cancelled = st.form_submit_button("Скасувати редагування")
 
         if submitted:
@@ -292,10 +275,9 @@ def display_edit_sale_form(item_data, sale_data):
                     if response.data:
                         st.success(f"Дані продажу ID: {sale_data['id']} оновлено.")
                         st.cache_data.clear()
-                        # Скидаємо стан редагування продажу і повертаємось до історії
                         st.session_state.editing_sale_id = None
                         st.session_state.editing_sale_item_id = None
-                        st.session_state.viewing_history_item_id = item_data['id'] # Залишаємо ID товару
+                        st.session_state.viewing_history_item_id = item_data['id']
                         st.rerun()
                     else:
                          st.error(f"Помилка при оновленні продажу: {getattr(response, 'error', 'Невідома помилка')}")
@@ -304,15 +286,172 @@ def display_edit_sale_form(item_data, sale_data):
                     st.error(f"Помилка бази даних при оновленні продажу: {e}")
 
         if cancelled:
-            # Скидаємо стан редагування продажу і повертаємось до історії
             st.session_state.editing_sale_id = None
             st.session_state.editing_sale_item_id = None
-            st.session_state.viewing_history_item_id = item_data['id'] # Залишаємо ID товару
+            st.session_state.viewing_history_item_id = item_data['id']
             st.rerun()
 
-# --- Головна логіка сторінки "Перегляд товарів" ---
+# --- Основна функція для відображення списку товарів та кнопок ---
+def display_items_view():
+    """Відображає список товарів, фільтри, пошук та кнопки дій."""
+    # st.subheader("Список товарів") # Заголовок тепер береться з назви файлу
 
-st.header("Список товарів")
+    col1, col2 = st.columns([2, 3])
+    with col1:
+        search_term = st.text_input("Пошук за назвою", key="search_input")
+    with col2:
+        filter_status = st.radio(
+            "Фільтр:",
+            ('all', 'in_stock', 'sold'),
+            format_func=lambda x: {'all': 'Усі', 'in_stock': 'В наявності', 'sold': 'Продані'}.get(x, x),
+            horizontal=True,
+            key="filter_radio"
+        )
+
+    items_data = load_items_from_db()
+    filtered_items = []
+    search_term_lower = search_term.lower()
+
+    for item in items_data:
+        # Пошук
+        if search_term_lower and search_term_lower not in item.get('name', '').lower():
+            continue
+
+        # Розрахунок для фільтрації
+        initial_qty = item.get('initial_quantity', 0)
+        sold_qty, avg_price = get_item_sales_info_cached(item)
+        remaining_qty = initial_qty - sold_qty
+        has_sales = sold_qty > 0
+
+        # Фільтрація
+        if filter_status == 'sold' and not has_sales:
+            continue
+        if filter_status == 'in_stock' and remaining_qty <= 0:
+            continue
+
+        # Додаємо розраховані поля для зручності
+        item['remaining_qty'] = remaining_qty
+        item['has_sales'] = has_sales
+        item['can_sell'] = remaining_qty > 0
+        item['avg_sell_price'] = avg_price
+
+        filtered_items.append(item)
+
+    if filtered_items:
+        display_data = []
+        for item in filtered_items:
+            item_name = item.get('name')
+            display_name = item_name if item_name else 'Без назви'
+
+            display_data.append({
+                "ID": item['id'],
+                "Назва": display_name,
+                "Залишок": item['remaining_qty'],
+                "Вартість (₴)": format_currency(item.get('cost_uah', 0.0)),
+                "Мито (₴)": format_currency(item.get('customs_uah', 0.0)),
+                "Сер. ціна продажу (₴/од.)": format_currency(item['avg_sell_price']) if item['has_sales'] else "---",
+                "Опис": item.get('опис', '')
+            })
+
+        df = pd.DataFrame(display_data)
+        st.dataframe(df, hide_index=True, use_container_width=True)
+
+        st.write("Дії з вибраним товаром:")
+        item_options = {item['id']: f"{item['id']}: {item.get('name') if item.get('name') else 'Без назви'}" for item in filtered_items}
+        current_selection_id = st.session_state.get('selected_item_id', None)
+        if current_selection_id not in item_options:
+             current_selection_id = None
+
+        default_index = 0
+        if current_selection_id and current_selection_id in item_options:
+             try:
+                 default_index = list(item_options.keys()).index(current_selection_id)
+             except ValueError:
+                 default_index = 0
+
+        selected_id = st.selectbox(
+             "Виберіть товар (ID: Назва)",
+             options=list(item_options.keys()),
+             format_func=lambda x: item_options.get(x, "Невідомий ID"),
+             index=default_index,
+             key="item_selector",
+             label_visibility="collapsed"
+        )
+
+        st.session_state.selected_item_id = selected_id
+
+        selected_item_data = None
+        if selected_id is not None:
+             for item in filtered_items:
+                 if item['id'] == selected_id:
+                      selected_item_data = item
+                      break
+
+        col1, col2, col3, col4, col5 = st.columns(5)
+        with col1:
+            if st.button("Редагувати", key="edit_btn", disabled=selected_item_data is None):
+                st.session_state.editing_item_id = selected_id
+                st.rerun()
+        with col2:
+            if st.button("Видалити", key="delete_btn", disabled=selected_item_data is None):
+                if selected_item_data:
+                    st.session_state.confirm_delete_id = selected_id
+                    st.rerun()
+                else:
+                    st.warning("Спочатку виберіть товар.")
+        with col3:
+            can_sell = selected_item_data.get('can_sell', False) if selected_item_data else False
+            if st.button("Продати", key="sell_btn", disabled=not can_sell):
+                 st.session_state.selling_item_id = selected_id
+                 st.rerun()
+        with col4:
+            has_sales = selected_item_data.get('has_sales', False) if selected_item_data else False
+            if st.button("Історія продажів", key="history_btn", disabled=not has_sales):
+                 st.session_state.viewing_history_item_id = selected_id
+                 st.rerun()
+        with col5:
+             # Кнопка статистики тепер просто перемикає на іншу сторінку
+             # Передаємо вибраний ID через session_state
+             if st.button("Статистика", key="stats_btn"):
+                  st.session_state.selected_item_id_for_stats = selected_id # Використовуємо інший ключ стану
+                  # Streamlit автоматично перейде на сторінку статистики при наступному запуску,
+                  # але можна додати st.switch_page("pages/3_📊_Статистика.py") якщо потрібно одразу
+                  st.info("Перейдіть на вкладку 'Статистика' для перегляду.")
+
+
+        # --- Підтвердження видалення товару ---
+        if 'confirm_delete_id' in st.session_state and st.session_state.confirm_delete_id is not None:
+             item_to_delete = get_item_by_db_id(st.session_state.confirm_delete_id)
+             item_name = item_to_delete.get('name') if item_to_delete else 'Н/Д'
+             display_delete_name = item_name if item_name else 'Без назви'
+             st.warning(f"**Ви впевнені, що хочете видалити товар '{display_delete_name}' (ID: {st.session_state.confirm_delete_id}) та всю його історію продажів?**")
+             c1, c2, _ = st.columns([1,1,5])
+             if c1.button("Так, видалити", key="confirm_delete_yes"):
+                  db_id_to_delete = st.session_state.confirm_delete_id
+                  st.session_state.confirm_delete_id = None
+                  if not supabase:
+                      st.error("Немає підключення до бази даних для видалення.")
+                      return
+                  try:
+                      response = supabase.table('items').delete().eq('id', db_id_to_delete).execute()
+                      st.success(f"Товар '{display_delete_name}' видалено.")
+                      st.cache_data.clear()
+                      st.session_state.selected_item_id = None
+                      st.rerun()
+                  except Exception as e:
+                      st.error(f"Помилка видалення з БД: {e}")
+
+             if c2.button("Ні, скасувати", key="confirm_delete_no"):
+                  st.session_state.confirm_delete_id = None
+                  st.rerun()
+
+    else:
+        st.info("Немає товарів, що відповідають поточним фільтрам та пошуку.")
+
+
+# --- Головна логіка сторінки "Перегляд товарів" ---
+# Заголовок буде взято з назви файлу "2_📈_Перегляд_товарів"
+# st.header("Список товарів")
 
 # Перевіряємо, чи потрібно відобразити форму редагування товару
 if st.session_state.get('editing_item_id') is not None:
@@ -321,8 +460,8 @@ if st.session_state.get('editing_item_id') is not None:
         display_edit_item_form(item_to_edit)
     else:
         st.error(f"Помилка: не знайдено товар для редагування (ID: {st.session_state.editing_item_id}).")
-        st.session_state.editing_item_id = None # Скидаємо стан, якщо товар не знайдено
-        if st.button("Повернутись до списку"): # Кнопка для повернення
+        st.session_state.editing_item_id = None
+        if st.button("Повернутись до списку"):
              st.rerun()
 
 # Перевіряємо, чи потрібно відобразити форму продажу
@@ -353,10 +492,10 @@ elif st.session_state.get('viewing_history_item_id') is not None:
              display_edit_sale_form(item_for_sale_edit, sale_to_edit)
         else:
              st.error(f"Помилка: не знайдено продаж для редагування (Sale ID: {st.session_state.editing_sale_id}).")
-             # Скидаємо стан редагування продажу, але залишаємось на історії
              st.session_state.editing_sale_id = None
              st.session_state.editing_sale_item_id = None
              if st.button("Повернутись до історії"):
+                  # Не скидаємо viewing_history_item_id
                   st.rerun()
 
     # Якщо не редагуємо продаж, показуємо саму історію
@@ -370,7 +509,7 @@ elif st.session_state.get('viewing_history_item_id') is not None:
             if st.button("Повернутись до списку"):
                  st.rerun()
 
-# Якщо жоден з режимів (редагування, продаж, історія) не активний, показуємо таблицю
+# Якщо жоден з режимів не активний, показуємо таблицю товарів
 else:
     display_items_view()
 
