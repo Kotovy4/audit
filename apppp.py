@@ -5,10 +5,10 @@ import locale
 import os
 
 # --- Налаштування сторінки (має бути першою командою Streamlit) ---
-st.set_page_config(layout="wide", page_title="AUDIT Облік") # Змінив і заголовок вкладки браузера
+st.set_page_config(layout="wide", page_title="AUDIT Облік")
 
-# --- Додаємо заголовок до бічної панелі ---
-st.sidebar.title("AUDIT") # <--- ДОДАНО ЦЕЙ РЯДОК
+# --- Додаємо заголовок до бічної панелі (ПЕРЕМІЩЕНО СЮДИ) ---
+st.sidebar.title("AUDIT") # <--- МАЄ БУТИ ТУТ, ОДРАЗУ ПІСЛЯ set_page_config
 
 # --- Налаштування локалі ---
 try:
@@ -59,7 +59,7 @@ supabase = init_supabase_client() # Створюємо клієнт
 def load_items_from_db():
     """Завантажує товари з Supabase та їх історію продажів."""
     if not supabase:
-        # st.error("Немає підключення до Supabase для завантаження товарів.") # Прибираємо помилку тут
+        # st.error("Немає підключення до Supabase для завантаження товарів.")
         return []
     try:
         response = supabase.table('items').select('*').order('id').execute()
@@ -147,6 +147,7 @@ if 'confirm_delete_sale_id' not in st.session_state:
      st.session_state.confirm_delete_sale_id = None
      st.session_state.confirm_delete_sale_item_id = None
 # Видаляємо непотрібні стани, пов'язані зі старим способом навігації
+# (Залишаємо цей код на випадок, якщо старі стани ще існують)
 if 'current_view' in st.session_state:
      del st.session_state['current_view']
 if 'show_statistics' in st.session_state:
