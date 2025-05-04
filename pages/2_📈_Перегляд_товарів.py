@@ -292,7 +292,6 @@ def display_edit_sale_form(item_data, sale_data):
             st.rerun()
 
 # --- Основна функція для відображення списку товарів та кнопок ---
-# (Визначена ДО її виклику в основній логіці сторінки)
 def display_items_view():
     """Відображає список товарів, фільтри, пошук та кнопки дій."""
     # st.subheader("Список товарів") # Заголовок тепер з назви файлу
@@ -350,7 +349,8 @@ def display_items_view():
                 "Вартість (₴)": format_currency(item.get('cost_uah', 0.0)),
                 "Мито (₴)": format_currency(item.get('customs_uah', 0.0)),
                 "Сер. ціна продажу (₴/од.)": format_currency(item['avg_sell_price']) if item['has_sales'] else "---",
-                "Опис": item.get('опис', '')
+                # Використовуємо правильний ключ 'description'
+                "Опис": item.get('description', '') # <--- ВИПРАВЛЕНО
             })
 
         df = pd.DataFrame(display_data)
@@ -411,11 +411,10 @@ def display_items_view():
                  st.rerun()
         with col5:
              if st.button("Статистика", key="stats_btn"):
-                  # Зберігаємо ID для сторінки статистики
-                  st.session_state.selected_item_id_for_stats = selected_id if selected_item_data else None
-                  # Можна додати повідомлення про перехід
+                  st.session_state.selected_item_id_for_stats = selected_id
+                  # Не перемикаємо сторінку тут, користувач має зробити це сам
                   st.info("Перейдіть на вкладку 'Статистика' для перегляду.")
-                  # Немає потреби в rerun, бо ми не змінюємо вигляд цієї сторінки
+
 
         # --- Підтвердження видалення товару ---
         if 'confirm_delete_id' in st.session_state and st.session_state.confirm_delete_id is not None:
