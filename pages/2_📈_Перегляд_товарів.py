@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import io # Потрібно для роботи з байтами в пам'яті
 # Імпортуємо спільні функції та клієнт supabase з основного файлу
 try:
     from apppp import (
@@ -16,16 +15,6 @@ except ImportError:
     st.error("Помилка імпорту: Не вдалося знайти основний файл 'apppp.py' або необхідні функції.")
     st.stop()
 
-# --- Функція для конвертації DataFrame в Excel ---
-def dataframe_to_excel(df):
-    """Конвертує Pandas DataFrame у байтовий потік Excel-файлу."""
-    output = io.BytesIO()
-    # Використовуємо context manager, щоб автоматично закрити writer
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Inventory')
-    # Отримуємо байтове представлення з буфера
-    processed_data = output.getvalue()
-    return processed_data
 
 # --- Функції для відображення форм (залишаються без змін) ---
 def display_edit_item_form(item_data):
@@ -319,15 +308,10 @@ def display_items_view():
             key="filter_radio"
         )
 
-    # --- Вибір колонок для відображення ---
-    all_columns = ["ID", "Назва", "Залишок", "Вартість (₴)", "Мито (₴)", "Сер. ціна продажу (₴/од.)", "Опис"]
-    default_columns = ["ID", "Назва", "Залишок", "Вартість (₴)", "Опис"]
-    selected_columns = st.multiselect(
-        "Виберіть колонки для відображення:",
-        options=all_columns,
-        default=default_columns,
-        key="column_selector"
-    )
+    # Прибираємо вибір колонок тут
+    # all_columns = ["ID", "Назва", "Залишок", "Вартість (₴)", "Мито (₴)", "Сер. ціна продажу (₴/од.)", "Опис"]
+    # default_columns = ["ID", "Назва", "Залишок", "Вартість (₴)", "Опис"]
+    # selected_columns = st.multiselect(...)
 
     items_data = load_items_from_db()
     filtered_items = []
@@ -359,38 +343,32 @@ def display_items_view():
 
     if filtered_items:
         display_data = []
+        # Визначаємо стандартний набір колонок для відображення тут
+        default_columns_view = ["ID", "Назва", "Залишок", "Вартість (₴)", "Опис"]
         for item in filtered_items:
             item_name = item.get('name')
             display_name = item_name if item_name else 'Без назви'
+            # Формуємо словник тільки з потрібними даними для стандартного вигляду
             row_data = {
                 "ID": item['id'],
                 "Назва": display_name,
                 "Залишок": item['remaining_qty'],
                 "Вартість (₴)": format_currency(item.get('cost_uah', 0.0)),
-                "Мито (₴)": format_currency(item.get('customs_uah', 0.0)),
-                "Сер. ціна продажу (₴/од.)": format_currency(item['avg_sell_price']) if item['has_sales'] else "---",
+                # "Мито (₴)": format_currency(item.get('customs_uah', 0.0)), # Прибрано за замовчуванням
+                # "Сер. ціна продажу (₴/од.)": format_currency(item['avg_sell_price']) if item['has_sales'] else "---", # Прибрано за замовчуванням
                 "Опис": item.get('description', '')
             }
             display_data.append(row_data)
 
-        df_full = pd.DataFrame(display_data)
-        valid_selected_columns = [col for col in selected_columns if col in df_full.columns]
-        if not valid_selected_columns:
-             valid_selected_columns = ["ID"]
-        df_display = df_full[valid_selected_columns]
+        # Створюємо DataFrame тільки з потрібними колонками
+        df_display = pd.DataFrame(display_data)[default_columns_view]
 
         st.dataframe(df_display, hide_index=True, use_container_width=True)
 
-        # --- Кнопка Експорту ---
-        if not df_display.empty: # Показуємо кнопку тільки якщо є дані для експорту
-            excel_data = dataframe_to_excel(df_display)
-            st.download_button(
-                label="📥 Експорт в Excel",
-                data=excel_data,
-                file_name='inventory_export.xlsx',
-                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                key='export_button'
-            )
+        # Прибираємо кнопку експорту звідси
+        # if not df_display.empty:
+        #     excel_data = dataframe_to_excel(df_display)
+        #     st.download_button(...)
         st.markdown("---") # Роздільник перед кнопками дій
 
         # --- Кнопки дій ---
@@ -420,10 +398,8 @@ def display_items_view():
 
         selected_item_data = None
         if selected_id is not None:
-             for item in filtered_items:
-                 if item['id'] == selected_id:
-                      selected_item_data = item
-                      break
+             # Шукаємо повні дані товару (включаючи ті, що не в таблиці)
+             selected_item_data = get_item_by_db_id(selected_id) # Використовуємо get_item_by_db_id для отримання всіх даних
 
         col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
@@ -438,12 +414,21 @@ def display_items_view():
                 else:
                     st.warning("Спочатку виберіть товар.")
         with col3:
-            can_sell = selected_item_data.get('can_sell', False) if selected_item_data else False
+             # Перераховуємо can_sell на основі повних даних
+            can_sell = False
+            if selected_item_data:
+                 initial_qty = selected_item_data.get('initial_quantity', 0)
+                 sold_qty, _ = get_item_sales_info_cached(selected_item_data)
+                 can_sell = (initial_qty - sold_qty) > 0
             if st.button("Продати", key="sell_btn", disabled=not can_sell):
                  st.session_state.selling_item_id = selected_id
                  st.rerun()
         with col4:
-            has_sales = selected_item_data.get('has_sales', False) if selected_item_data else False
+             # Перераховуємо has_sales на основі повних даних
+            has_sales = False
+            if selected_item_data:
+                 sold_qty, _ = get_item_sales_info_cached(selected_item_data)
+                 has_sales = sold_qty > 0
             if st.button("Історія продажів", key="history_btn", disabled=not has_sales):
                  st.session_state.viewing_history_item_id = selected_id
                  st.rerun()
