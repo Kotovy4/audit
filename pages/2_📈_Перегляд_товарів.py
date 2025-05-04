@@ -308,10 +308,15 @@ def display_items_view():
             key="filter_radio"
         )
 
-    # Прибираємо вибір колонок тут
-    # all_columns = ["ID", "Назва", "Залишок", "Вартість (₴)", "Мито (₴)", "Сер. ціна продажу (₴/од.)", "Опис"]
-    # default_columns = ["ID", "Назва", "Залишок", "Вартість (₴)", "Опис"]
-    # selected_columns = st.multiselect(...)
+    # --- Повертаємо вибір колонок для відображення ---
+    all_columns = ["ID", "Назва", "Залишок", "Вартість (₴)", "Мито (₴)", "Сер. ціна продажу (₴/од.)", "Опис"]
+    default_columns = ["ID", "Назва", "Залишок", "Вартість (₴)", "Опис"] # Стандартний набір
+    selected_columns = st.multiselect(
+        "Виберіть колонки для відображення:",
+        options=all_columns,
+        default=default_columns,
+        key="column_selector"
+    )
 
     items_data = load_items_from_db()
     filtered_items = []
@@ -343,35 +348,37 @@ def display_items_view():
 
     if filtered_items:
         display_data = []
-        # Визначаємо стандартний набір колонок для відображення тут
-        default_columns_view = ["ID", "Назва", "Залишок", "Вартість (₴)", "Опис"]
         for item in filtered_items:
             item_name = item.get('name')
             display_name = item_name if item_name else 'Без назви'
-            # Формуємо словник тільки з потрібними даними для стандартного вигляду
+            # Формуємо повний словник даних для рядка
             row_data = {
                 "ID": item['id'],
                 "Назва": display_name,
                 "Залишок": item['remaining_qty'],
                 "Вартість (₴)": format_currency(item.get('cost_uah', 0.0)),
-                # "Мито (₴)": format_currency(item.get('customs_uah', 0.0)), # Прибрано за замовчуванням
-                # "Сер. ціна продажу (₴/од.)": format_currency(item['avg_sell_price']) if item['has_sales'] else "---", # Прибрано за замовчуванням
+                "Мито (₴)": format_currency(item.get('customs_uah', 0.0)),
+                "Сер. ціна продажу (₴/од.)": format_currency(item['avg_sell_price']) if item['has_sales'] else "---",
                 "Опис": item.get('description', '')
             }
             display_data.append(row_data)
 
-        # Створюємо DataFrame тільки з потрібними колонками
-        df_display = pd.DataFrame(display_data)[default_columns_view]
+        # Створюємо DataFrame з усіма можливими даними
+        df_full = pd.DataFrame(display_data)
+
+        # Фільтруємо DataFrame, залишаючи тільки вибрані колонки
+        valid_selected_columns = [col for col in selected_columns if col in df_full.columns]
+        if not valid_selected_columns:
+             valid_selected_columns = ["ID"] # Показуємо хоча б ID
+        df_display = df_full[valid_selected_columns]
 
         st.dataframe(df_display, hide_index=True, use_container_width=True)
 
         # Прибираємо кнопку експорту звідси
-        # if not df_display.empty:
-        #     excel_data = dataframe_to_excel(df_display)
-        #     st.download_button(...)
         st.markdown("---") # Роздільник перед кнопками дій
 
         # --- Кнопки дій ---
+        # (Код кнопок залишається без змін)
         st.write("Дії з вибраним товаром:")
         item_options = {item['id']: f"{item['id']}: {item.get('name') if item.get('name') else 'Без назви'}" for item in filtered_items}
         current_selection_id = st.session_state.get('selected_item_id', None)
@@ -398,8 +405,7 @@ def display_items_view():
 
         selected_item_data = None
         if selected_id is not None:
-             # Шукаємо повні дані товару (включаючи ті, що не в таблиці)
-             selected_item_data = get_item_by_db_id(selected_id) # Використовуємо get_item_by_db_id для отримання всіх даних
+             selected_item_data = get_item_by_db_id(selected_id) # Отримуємо повні дані
 
         col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
@@ -414,7 +420,6 @@ def display_items_view():
                 else:
                     st.warning("Спочатку виберіть товар.")
         with col3:
-             # Перераховуємо can_sell на основі повних даних
             can_sell = False
             if selected_item_data:
                  initial_qty = selected_item_data.get('initial_quantity', 0)
@@ -424,7 +429,6 @@ def display_items_view():
                  st.session_state.selling_item_id = selected_id
                  st.rerun()
         with col4:
-             # Перераховуємо has_sales на основі повних даних
             has_sales = False
             if selected_item_data:
                  sold_qty, _ = get_item_sales_info_cached(selected_item_data)
@@ -529,4 +533,3 @@ elif st.session_state.get('viewing_history_item_id') is not None:
 # Якщо жоден з режимів не активний, показуємо таблицю товарів
 else:
     display_items_view()
-
