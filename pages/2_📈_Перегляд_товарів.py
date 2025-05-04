@@ -9,23 +9,71 @@ try:
         get_item_by_db_id,
         get_item_sales_info_cached,
         format_currency,
-        calculate_uah_cost
+        calculate_uah_cost,
+        CURRENCY_SETTINGS # Імпортуємо налаштування валют
     )
 except ImportError:
     st.error("Помилка імпорту: Не вдалося знайти основний файл 'apppp.py' або необхідні функції.")
     st.stop()
 
 
-# --- Функції для відображення форм (залишаються без змін) ---
+# --- Функції для відображення форм (визначені ДО їх виклику) ---
+
 def display_edit_item_form(item_data):
-    """Відображає форму для редагування товару."""
+    """Відображає форму для редагування товару, включаючи вибір країни."""
     st.subheader(f"Редагувати товар: {item_data.get('name', 'Н/Д')}")
+
+    # Визначаємо поточну країну або країну за замовчуванням (USA)
+    current_country = item_data.get('origin_country')
+    if not current_country: # Якщо країна ще не встановлена
+        current_country = "USA" # Вважаємо, що старі записи з США
+
+    # Отримуємо індекс поточної країни для selectbox
+    country_options = list(CURRENCY_SETTINGS.keys())
+    try:
+        current_country_index = country_options.index(current_country)
+    except ValueError:
+        current_country_index = 0 # Якщо збережена країна невалідна, обираємо першу
+        current_country = country_options[0] # Оновлюємо поточну країну
+
+    # Вибір країни - виносимо за межі форми, щоб UI оновлювався
+    selected_country = st.selectbox(
+        "Країна походження*",
+        options=country_options,
+        index=current_country_index,
+        key=f"edit_country_select_{item_data['id']}"
+    )
+
+    # Отримуємо налаштування для вибраної країни
+    settings = CURRENCY_SETTINGS[selected_country]
+    currency_symbol = settings["symbol"]
+    currency_code = settings["code"]
+    rate_label = settings["rate_label"]
+    # Беремо курс з БД, якщо він є, інакше - дефолтний для цієї країни
+    default_rate = item_data.get('rate') if item_data.get('rate') else settings["default_rate"]
+
     with st.form("edit_item_form"):
         name = st.text_input("Назва товару*", value=item_data.get('name', ''), key=f"edit_name_{item_data['id']}")
         initial_quantity = st.number_input("Початкова кількість*", min_value=1, step=1, value=item_data.get('initial_quantity', 1), key=f"edit_qty_{item_data['id']}")
-        cost_usd = st.number_input("Вартість ($)", min_value=0.0, step=0.01, format="%.2f", value=float(item_data.get('cost_usd', 0.0)), key=f"edit_cost_{item_data['id']}")
-        shipping_usd = st.number_input("Доставка ($)", min_value=0.0, step=0.01, format="%.2f", value=float(item_data.get('shipping_usd', 0.0)), key=f"edit_ship_{item_data['id']}")
-        rate = st.number_input("Курс $/грн*", min_value=0.01, step=0.01, format="%.4f", value=float(item_data.get('rate', 0.0)), key=f"edit_rate_{item_data['id']}")
+
+        # Визначаємо, які значення вартості/доставки показувати
+        # Якщо країна вже була встановлена, беремо _original, інакше беремо _usd (для старих записів)
+        cost_to_display = item_data.get('cost_original') if item_data.get('origin_country') else item_data.get('cost_usd', 0.0)
+        shipping_to_display = item_data.get('shipping_original') if item_data.get('origin_country') else item_data.get('shipping_usd', 0.0)
+
+        cost_original = st.number_input(f"Вартість ({currency_symbol})*", min_value=0.0, step=0.01, format="%.2f", value=float(cost_to_display), key=f"edit_cost_original_{item_data['id']}")
+        shipping_original = st.number_input(f"Доставка ({currency_symbol})*", min_value=0.0, step=0.01, format="%.2f", value=float(shipping_to_display), key=f"edit_shipping_original_{item_data['id']}")
+
+        # Курс
+        rate = st.number_input(
+            rate_label,
+            min_value=0.01,
+            step=0.01,
+            format="%.4f",
+            value=float(default_rate), # Використовуємо курс з БД або дефолтний
+            key=f"edit_rate_dynamic_{item_data['id']}"
+            )
+
         customs_uah = st.number_input("Митний платіж (грн)", min_value=0.0, step=0.01, format="%.2f", value=float(item_data.get('customs_uah', 0.0)), key=f"edit_customs_{item_data['id']}")
         description = st.text_area("Опис", value=item_data.get('description', ''), key=f"edit_desc_{item_data['id']}")
 
@@ -44,38 +92,49 @@ def display_edit_item_form(item_data):
                 st.error("Немає підключення до бази даних для збереження змін.")
                 return
 
-            if not name or not initial_quantity or not rate:
-                st.warning("Будь ласка, заповніть обов'язкові поля: Назва, Початкова к-сть, Курс.")
+            # Валідація
+            if not name or not initial_quantity or not cost_original or not shipping_original or not rate:
+                st.warning(f"Будь ласка, заповніть обов'язкові поля: Назва, Початкова к-сть, Вартість ({currency_symbol}), Доставка ({currency_symbol}), {rate_label}.")
+                return
             elif initial_quantity < sold_qty:
                  st.error(f"Нова початкова кількість ({initial_quantity}) не може бути меншою за вже продану ({sold_qty})!")
-            else:
-                cost_uah = calculate_uah_cost(cost_usd, shipping_usd, rate)
-                try:
-                    response = supabase.table('items').update({
-                        "name": name,
-                        "initial_quantity": initial_quantity,
-                        "cost_usd": cost_usd,
-                        "shipping_usd": shipping_usd,
-                        "rate": rate,
-                        "cost_uah": cost_uah,
-                        "customs_uah": customs_uah,
-                        "description": description
-                    }).eq('id', item_data['id']).execute()
+                 return
 
-                    if response.data:
-                        st.success(f"Дані товару '{name}' оновлено!")
-                        st.cache_data.clear()
-                        st.session_state.editing_item_id = None
-                        st.rerun()
-                    else:
-                        st.error(f"Помилка при оновленні товару: {getattr(response, 'error', 'Невідома помилка')}")
+            # Розрахунок вартості в грн
+            cost_uah = calculate_uah_cost(cost_original, shipping_original, rate)
+            try:
+                update_data = {
+                    "name": name,
+                    "initial_quantity": initial_quantity,
+                    "origin_country": selected_country, # Зберігаємо вибрану країну
+                    "original_currency": currency_code, # Зберігаємо відповідну валюту
+                    "cost_original": cost_original,     # Зберігаємо вартість в цій валюті
+                    "shipping_original": shipping_original, # Зберігаємо доставку в цій валюті
+                    "rate": rate,                       # Зберігаємо курс
+                    "cost_uah": cost_uah,               # Зберігаємо вартість в грн
+                    "customs_uah": customs_uah,
+                    "description": description
+                    # Оновлюємо і старі поля USD для сумісності (опціонально)
+                    # "cost_usd": cost_original if currency_code == "USD" else item_data.get('cost_usd'), # Зберігаємо USD, якщо вибрано США
+                    # "shipping_usd": shipping_original if currency_code == "USD" else item_data.get('shipping_usd')
+                }
+                response = supabase.table('items').update(update_data).eq('id', item_data['id']).execute()
 
-                except Exception as e:
-                    st.error(f"Помилка бази даних при оновленні товару: {e}")
+                if response.data:
+                    st.success(f"Дані товару '{name}' оновлено!")
+                    st.cache_data.clear()
+                    st.session_state.editing_item_id = None # Скидаємо стан редагування
+                    st.rerun() # Перезапускаємо, щоб повернутися до таблиці
+                else:
+                    st.error(f"Помилка при оновленні товару: {getattr(response, 'error', 'Невідома помилка')}")
+
+            except Exception as e:
+                st.error(f"Помилка бази даних при оновленні товару: {e}")
         if cancelled:
-             st.session_state.editing_item_id = None
-             st.rerun()
+             st.session_state.editing_item_id = None # Скидаємо стан редагування
+             st.rerun() # Перезапускаємо, щоб повернутися до таблиці
 
+# --- Інші функції (display_sell_item_form, display_sales_history, display_edit_sale_form) залишаються без змін ---
 def display_sell_item_form(item_data):
     """Відображає форму для продажу одиниць товару."""
     st.subheader(f"Продаж товару: {item_data.get('name', 'Н/Д')}")
@@ -351,7 +410,6 @@ def display_items_view():
         for item in filtered_items:
             item_name = item.get('name')
             display_name = item_name if item_name else 'Без назви'
-            # Формуємо повний словник даних для рядка
             row_data = {
                 "ID": item['id'],
                 "Назва": display_name,
@@ -363,13 +421,10 @@ def display_items_view():
             }
             display_data.append(row_data)
 
-        # Створюємо DataFrame з усіма можливими даними
         df_full = pd.DataFrame(display_data)
-
-        # Фільтруємо DataFrame, залишаючи тільки вибрані колонки
         valid_selected_columns = [col for col in selected_columns if col in df_full.columns]
         if not valid_selected_columns:
-             valid_selected_columns = ["ID"] # Показуємо хоча б ID
+             valid_selected_columns = ["ID"]
         df_display = df_full[valid_selected_columns]
 
         st.dataframe(df_display, hide_index=True, use_container_width=True)
@@ -378,7 +433,6 @@ def display_items_view():
         st.markdown("---") # Роздільник перед кнопками дій
 
         # --- Кнопки дій ---
-        # (Код кнопок залишається без змін)
         st.write("Дії з вибраним товаром:")
         item_options = {item['id']: f"{item['id']}: {item.get('name') if item.get('name') else 'Без назви'}" for item in filtered_items}
         current_selection_id = st.session_state.get('selected_item_id', None)
@@ -405,7 +459,7 @@ def display_items_view():
 
         selected_item_data = None
         if selected_id is not None:
-             selected_item_data = get_item_by_db_id(selected_id) # Отримуємо повні дані
+             selected_item_data = get_item_by_db_id(selected_id)
 
         col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
@@ -533,3 +587,4 @@ elif st.session_state.get('viewing_history_item_id') is not None:
 # Якщо жоден з режимів не активний, показуємо таблицю товарів
 else:
     display_items_view()
+
