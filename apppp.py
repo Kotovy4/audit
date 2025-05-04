@@ -158,7 +158,7 @@ if 'current_view' in st.session_state:
 if 'show_statistics' in st.session_state:
      del st.session_state['show_statistics']
 if 'stats_selected_item_id' in st.session_state:
-     del st.session_state['stats_selected_item_id'] # Використовуємо selected_item_id_for_stats
+     del st.session_state['stats_selected_item_id']
 
 
 # --- Головна сторінка ---
@@ -170,3 +170,4 @@ st.info("Це головна сторінка. Основний функціон
 
 # --- Додатково: кнопка для очищення кешу (для відладки) ---
 # st.sidebar.button("Очистити кеш даних", on_click=st.cache_data.clear)
+
