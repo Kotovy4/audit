@@ -17,7 +17,7 @@ except ImportError:
 
 
 # --- Функції для відображення форм (визначені ДО їх виклику) ---
-
+# (Функції display_edit_item_form, display_sell_item_form, display_sales_history, display_edit_sale_form залишаються без змін з попередньої версії)
 def display_edit_item_form(item_data):
     """Відображає форму для редагування товару."""
     st.subheader(f"Редагувати товар: {item_data.get('name', 'Н/Д')}")
@@ -300,13 +300,26 @@ def display_items_view():
     with col1:
         search_term = st.text_input("Пошук за назвою", key="search_input")
     with col2:
+        # Змінюємо значення за замовчуванням на 'in_stock'
         filter_status = st.radio(
             "Фільтр:",
             ('all', 'in_stock', 'sold'),
+            index=1, # 0='all', 1='in_stock', 2='sold'
             format_func=lambda x: {'all': 'Усі', 'in_stock': 'В наявності', 'sold': 'Продані'}.get(x, x),
             horizontal=True,
             key="filter_radio"
         )
+
+    # --- Вибір колонок для відображення ---
+    all_columns = ["ID", "Назва", "Залишок", "Вартість (₴)", "Мито (₴)", "Сер. ціна продажу (₴/од.)", "Опис"]
+    default_columns = ["ID", "Назва", "Залишок", "Вартість (₴)", "Опис"]
+    # Використовуємо ключ, щоб стан зберігався між перезапусками
+    selected_columns = st.multiselect(
+        "Виберіть колонки для відображення:",
+        options=all_columns,
+        default=default_columns,
+        key="column_selector"
+    )
 
     items_data = load_items_from_db()
     filtered_items = []
@@ -341,20 +354,29 @@ def display_items_view():
         for item in filtered_items:
             item_name = item.get('name')
             display_name = item_name if item_name else 'Без назви'
-
-            display_data.append({
+            # Формуємо словник тільки з потрібними даними
+            row_data = {
                 "ID": item['id'],
                 "Назва": display_name,
                 "Залишок": item['remaining_qty'],
                 "Вартість (₴)": format_currency(item.get('cost_uah', 0.0)),
                 "Мито (₴)": format_currency(item.get('customs_uah', 0.0)),
                 "Сер. ціна продажу (₴/од.)": format_currency(item['avg_sell_price']) if item['has_sales'] else "---",
-                # Використовуємо правильний ключ 'description'
-                "Опис": item.get('description', '') # <--- ВИПРАВЛЕНО
-            })
+                "Опис": item.get('description', '')
+            }
+            display_data.append(row_data)
 
-        df = pd.DataFrame(display_data)
-        st.dataframe(df, hide_index=True, use_container_width=True)
+        # Створюємо DataFrame з усіма можливими даними
+        df_full = pd.DataFrame(display_data)
+
+        # Фільтруємо DataFrame, залишаючи тільки вибрані колонки
+        # Переконуємося, що вибрані колонки існують у DataFrame
+        valid_selected_columns = [col for col in selected_columns if col in df_full.columns]
+        if not valid_selected_columns: # Якщо користувач зняв усі галочки, показуємо хоча б ID
+             valid_selected_columns = ["ID"]
+        df_display = df_full[valid_selected_columns]
+
+        st.dataframe(df_display, hide_index=True, use_container_width=True)
 
         st.write("Дії з вибраним товаром:")
         item_options = {item['id']: f"{item['id']}: {item.get('name') if item.get('name') else 'Без назви'}" for item in filtered_items}
@@ -382,6 +404,7 @@ def display_items_view():
 
         selected_item_data = None
         if selected_id is not None:
+             # Шукаємо у ВІДФІЛЬТРОВАНИХ даних, щоб отримати розраховані поля
              for item in filtered_items:
                  if item['id'] == selected_id:
                       selected_item_data = item
@@ -412,7 +435,6 @@ def display_items_view():
         with col5:
              if st.button("Статистика", key="stats_btn"):
                   st.session_state.selected_item_id_for_stats = selected_id
-                  # Не перемикаємо сторінку тут, користувач має зробити це сам
                   st.info("Перейдіть на вкладку 'Статистика' для перегляду.")
 
 
@@ -447,8 +469,7 @@ def display_items_view():
 
 
 # --- Головна логіка сторінки "Перегляд товарів" ---
-# Заголовок буде взято з назви файлу "2_📈_Перегляд_товарів"
-# st.header("Список товарів")
+# st.header("📈 Перегляд товарів") # Заголовок береться з назви файлу
 
 # Перевіряємо, чи потрібно відобразити форму редагування товару
 if st.session_state.get('editing_item_id') is not None:
