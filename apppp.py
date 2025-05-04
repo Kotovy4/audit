@@ -32,7 +32,7 @@ else:
         except (ValueError, TypeError): return "Помилка"
 
 # --- Підключення до Supabase ---
-@st.cache_resource
+@st.cache_resource # Кешуємо сам об'єкт підключення
 def init_supabase_client():
     """Ініціалізує та повертає клієнт Supabase."""
     try:
@@ -59,7 +59,7 @@ supabase = init_supabase_client() # Створюємо клієнт
 def load_items_from_db():
     """Завантажує товари з Supabase та їх історію продажів."""
     if not supabase:
-        # st.error("Немає підключення до Supabase для завантаження товарів.")
+        # st.error("Немає підключення до Supabase для завантаження товарів.") # Прибираємо помилку тут
         return []
     try:
         response = supabase.table('items').select('*').order('id').execute()
@@ -116,11 +116,11 @@ def get_item_sales_info_cached(item_data):
     average_sell_price = total_sales_value / total_sold_qty if total_sold_qty > 0 else 0.0
     return total_sold_qty, average_sell_price
 
-def calculate_uah_cost(cost_usd, shipping_usd, rate):
-    """Розраховує вартість в UAH."""
+def calculate_uah_cost(cost_original, shipping_original, rate): # Змінено аргументи
+    """Розраховує вартість в UAH на основі оригінальної вартості та курсу."""
     try:
-        cost = float(cost_usd or 0)
-        shipping = float(shipping_usd or 0)
+        cost = float(cost_original or 0)
+        shipping = float(shipping_original or 0)
         rate_val = float(rate or 0)
         if rate_val > 0:
             return (cost + shipping) * rate_val
@@ -128,6 +128,12 @@ def calculate_uah_cost(cost_usd, shipping_usd, rate):
             return 0.0
     except (ValueError, TypeError):
         return 0.0
+
+# Словник для налаштувань валют (винесено сюди для спільного доступу)
+CURRENCY_SETTINGS = {
+    "USA": {"symbol": "$", "code": "USD", "default_rate": 42.0, "rate_label": "Курс $/грн*"},
+    "Poland": {"symbol": "zł", "code": "PLN", "default_rate": 11.11, "rate_label": "Курс zł/грн*"}
+}
 
 # --- Ініціалізація стану додатку ---
 if 'selected_item_id' not in st.session_state:
@@ -147,13 +153,12 @@ if 'confirm_delete_sale_id' not in st.session_state:
      st.session_state.confirm_delete_sale_id = None
      st.session_state.confirm_delete_sale_item_id = None
 # Видаляємо непотрібні стани, пов'язані зі старим способом навігації
-# (Залишаємо цей код на випадок, якщо старі стани ще існують)
 if 'current_view' in st.session_state:
      del st.session_state['current_view']
 if 'show_statistics' in st.session_state:
      del st.session_state['show_statistics']
 if 'stats_selected_item_id' in st.session_state:
-     del st.session_state['stats_selected_item_id']
+     del st.session_state['stats_selected_item_id'] # Використовуємо selected_item_id_for_stats
 
 
 # --- Головна сторінка ---
