@@ -19,8 +19,7 @@ def dataframe_to_excel(df):
     processed_data = output.getvalue()
     return processed_data
 
-# --- Функції для відображення форм ---
-
+# --- Функції для відображення форм (залишаються без змін) ---
 def display_edit_item_form(item_data):
     """Відображає форму для редагування товару, включаючи вибір країни."""
     st.subheader(f"Редагувати товар: {item_data.get('name', 'Н/Д')}")
@@ -85,32 +84,10 @@ def display_edit_item_form(item_data):
                 st.error("Немає підключення до бази даних для збереження змін.")
                 return
 
-            # --- Оновлена валідація для редагування ---
-            validation_error = False
-            error_messages = []
-            if not name:
-                validation_error = True
-                error_messages.append("Назва товару")
-            if initial_quantity is None or initial_quantity <= 0:
-                 validation_error = True
-                 error_messages.append("Початкова кількість (має бути > 0)")
-            if rate is None or rate <= 0:
-                 validation_error = True
-                 error_messages.append(f"{rate_label} (має бути > 0)")
-            if cost_original is None: # Дозволяємо 0.0
-                 validation_error = True
-                 error_messages.append(f"Вартість ({currency_symbol})")
-            if shipping_original is None: # Дозволяємо 0.0
-                 validation_error = True
-                 error_messages.append(f"Доставка ({currency_symbol})")
-
-            if validation_error:
-                st.warning(f"Будь ласка, заповніть або перевірте обов'язкові поля: {', '.join(error_messages)}.")
-                return # Зупиняємо, якщо є помилка валідації
-            # --- Кінець оновленої валідації ---
-
-            # Перевірка кількості (залишається)
-            if initial_quantity < sold_qty:
+            if not name or not initial_quantity or not cost_original or not shipping_original or not rate:
+                st.warning(f"Будь ласка, заповніть обов'язкові поля: Назва, Початкова к-сть, Вартість ({currency_symbol}), Доставка ({currency_symbol}), {rate_label}.")
+                return
+            elif initial_quantity < sold_qty:
                  st.error(f"Нова початкова кількість ({initial_quantity}) не може бути меншою за вже продану ({sold_qty})!")
                  return
 
@@ -125,7 +102,7 @@ def display_edit_item_form(item_data):
                     "shipping_original": shipping_original,
                     "rate": rate,
                     "cost_uah": cost_uah,
-                    "customs_uah": customs_uah if customs_uah is not None else 0.0, # Перевірка на None
+                    "customs_uah": customs_uah if customs_uah is not None else 0.0,
                     "description": description
                 }
                 response = apppp.supabase.table('items').update(update_data).eq('id', item_data['id']).execute()
@@ -136,21 +113,16 @@ def display_edit_item_form(item_data):
                     st.session_state.editing_item_id = None
                     st.rerun()
                 else:
-                    # Перевіряємо, чи є помилка в відповіді Supabase
                     api_error = getattr(response, 'error', None)
                     if api_error:
                          st.error(f"Помилка при оновленні товару в БД: {api_error}")
-                    # Іноді помилка може бути на рівні HTTP або з'єднання
                     elif hasattr(response, 'status_code') and response.status_code >= 400:
                          st.error(f"Помилка при оновленні товару: HTTP {response.status_code}")
                     else:
-                         # Якщо даних немає, але й помилки немає (дивно, але можливо)
                          st.warning("Оновлення товару не повернуло даних, але й не повідомило про помилку.")
-                         # Все одно скидаємо стан і оновлюємо
                          st.cache_data.clear()
                          st.session_state.editing_item_id = None
                          st.rerun()
-
 
             except Exception as e:
                 st.error(f"Помилка бази даних при оновленні товару: {e}")
@@ -382,14 +354,19 @@ def display_items_view():
         filter_status = st.radio(
             "Фільтр:",
             ('all', 'in_stock', 'sold'),
-            index=1,
+            index=1, # За замовчуванням "В наявності"
             format_func=lambda x: {'all': 'Усі', 'in_stock': 'В наявності', 'sold': 'Продані'}.get(x, x),
             horizontal=True,
             key="filter_radio"
         )
 
-    all_columns = ["ID", "Назва", "Залишок", "Вартість (₴)", "Мито (₴)", "Сер. ціна продажу (₴/од.)", "Опис"]
-    default_columns = ["ID", "Назва", "Залишок", "Вартість (₴)", "Опис"]
+    # --- Повертаємо вибір колонок для відображення ---
+    all_columns = [
+        "ID", "Назва", "Залишок", "Вартість (₴)", "Мито (₴)",
+        "Сер. ціна продажу (₴/од.)", "Опис",
+        "Доставка (ориг. валюта)" # <-- Додано нову колонку
+    ]
+    default_columns = ["ID", "Назва", "Залишок", "Вартість (₴)", "Опис"] # Стандартний набір
     selected_columns = st.multiselect(
         "Виберіть колонки для відображення:",
         options=all_columns,
@@ -402,14 +379,17 @@ def display_items_view():
     search_term_lower = search_term.lower()
 
     for item in items_data:
+        # Пошук
         if search_term_lower and search_term_lower not in item.get('name', '').lower():
             continue
 
+        # Розрахунок для фільтрації
         initial_qty = item.get('initial_quantity', 0)
         sold_qty, avg_price = apppp.get_item_sales_info_cached(item)
         remaining_qty = initial_qty - sold_qty
         has_sales = sold_qty > 0
 
+        # Фільтрація
         if filter_status == 'sold' and not has_sales:
             continue
         if filter_status == 'in_stock' and remaining_qty <= 0:
@@ -427,6 +407,8 @@ def display_items_view():
         for item in filtered_items:
             item_name = item.get('name')
             display_name = item_name if item_name else 'Без назви'
+
+            # Формуємо рядок з усіма можливими даними
             row_data = {
                 "ID": item['id'],
                 "Назва": display_name,
@@ -434,19 +416,25 @@ def display_items_view():
                 "Вартість (₴)": apppp.format_currency(item.get('cost_uah', 0.0)),
                 "Мито (₴)": apppp.format_currency(item.get('customs_uah', 0.0)),
                 "Сер. ціна продажу (₴/од.)": apppp.format_currency(item['avg_sell_price']) if item['has_sales'] else "---",
-                "Опис": item.get('description', '')
+                "Опис": item.get('description', ''),
+                # Додаємо нову колонку: Доставка (ориг. валюта)
+                "Доставка (ориг. валюта)": f"{item.get('shipping_original', 0.0):.2f} {apppp.CURRENCY_SETTINGS.get(item.get('origin_country', 'USA'), {}).get('symbol', '')}".strip()
             }
             display_data.append(row_data)
 
+        # Створюємо DataFrame з усіма можливими даними
         df_full = pd.DataFrame(display_data)
+
+        # Фільтруємо DataFrame, залишаючи тільки вибрані колонки
         valid_selected_columns = [col for col in selected_columns if col in df_full.columns]
         if not valid_selected_columns:
-             valid_selected_columns = ["ID"]
+             valid_selected_columns = ["ID"] # Показуємо хоча б ID
         df_display = df_full[valid_selected_columns]
 
         st.dataframe(df_display, hide_index=True, use_container_width=True)
-        st.markdown("---")
+        st.markdown("---") # Роздільник перед кнопками дій
 
+        # --- Кнопки дій ---
         st.write("Дії з вибраним товаром:")
         item_options = {item['id']: f"{item['id']}: {item.get('name') if item.get('name') else 'Без назви'}" for item in filtered_items}
         current_selection_id = st.session_state.get('selected_item_id', None)
@@ -601,4 +589,3 @@ elif st.session_state.get('viewing_history_item_id') is not None:
 # Якщо жоден з режимів не активний, показуємо таблицю товарів
 else:
     display_items_view()
-
