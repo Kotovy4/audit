@@ -366,7 +366,8 @@ def display_items_view():
         "Сер. ціна продажу (₴/од.)", "Опис",
         "Доставка (ориг. валюта)" # <-- Додано нову колонку
     ]
-    default_columns = ["ID", "Назва", "Залишок", "Вартість (₴)", "Опис"] # Стандартний набір
+    # Додаємо "Доставка (ориг. валюта)" до списку за замовчуванням
+    default_columns = ["ID", "Назва", "Залишок", "Вартість (₴)", "Доставка (ориг. валюта)", "Опис"] # <--- ЗМІНЕНО
     selected_columns = st.multiselect(
         "Виберіть колонки для відображення:",
         options=all_columns,
@@ -407,7 +408,6 @@ def display_items_view():
         for item in filtered_items:
             item_name = item.get('name')
             display_name = item_name if item_name else 'Без назви'
-
             # Формуємо рядок з усіма можливими даними
             row_data = {
                 "ID": item['id'],
