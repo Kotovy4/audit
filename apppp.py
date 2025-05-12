@@ -129,16 +129,12 @@ def calculate_uah_cost(cost_original, shipping_original, rate): # Змінено
     except (ValueError, TypeError):
         return 0.0
 
-# ==============================================================
-# ===== ПЕРЕВІРТЕ НАЯВНІСТЬ ТА ПРАВИЛЬНІСТЬ ЦЬОГО БЛОКУ!!! =====
-# ==============================================================
 # Словник для налаштувань валют (винесено сюди для спільного доступу)
 CURRENCY_SETTINGS = {
     "USA": {"symbol": "$", "code": "USD", "default_rate": 42.0, "rate_label": "Курс $/грн*"},
-    "Poland": {"symbol": "zł", "code": "PLN", "default_rate": 11.11, "rate_label": "Курс zł/грн*"}
+    "Poland": {"symbol": "zł", "code": "PLN", "default_rate": 11.11, "rate_label": "Курс zł/грн*"},
+    "England": {"symbol": "£", "code": "GBP", "default_rate": 55.0, "rate_label": "Курс £/грн*"} # <--- ДОДАНО НОВУ КРАЇНУ
 }
-# ==============================================================
-# ==============================================================
 
 # --- Ініціалізація стану додатку ---
 if 'selected_item_id' not in st.session_state:
