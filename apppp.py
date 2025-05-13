@@ -19,11 +19,13 @@ except locale.Error:
         locale.setlocale(locale.LC_ALL, 'uk_UA')
     except locale.Error:
         print("Локаль 'uk_UA' також недоступна, використовується стандартне форматування.")
+        # Функція для простого форматування, якщо локаль недоступна
         def format_currency(value):
             if value is None: return "---"
             try: return f"{value:,.2f} ₴"
             except (ValueError, TypeError): return "Помилка"
 else:
+    # Функція форматування з використанням locale
     def format_currency(value):
         if value is None: return "---"
         try: return locale.currency(value, symbol='₴', grouping=True)
@@ -61,61 +63,91 @@ def load_items_from_db(limit=None, offset=None, search_term=None):
     Повертає список товарів для поточної сторінки та загальну кількість товарів, що відповідають критеріям.
     """
     if not supabase:
+        st.warning("Підключення до Supabase відсутнє. Неможливо завантажити дані.")
         return [], 0
 
     try:
-        # 1. Завантажуємо основні дані товарів, вибираючи конкретні колонки
-        # Колонки, необхідні для відображення та розрахунків
         item_columns_to_select = "id, name, initial_quantity, cost_uah, customs_uah, description, origin_country, original_currency, cost_original, shipping_original, rate, created_at"
         
-        query = supabase.table('items').select(item_columns_to_select, count='exact')
-
+        # Спочатку отримуємо загальну кількість з урахуванням пошуку
+        count_query = supabase.table('items').select('id', count='exact')
         if search_term:
-            query = query.ilike('name', f'%{search_term}%')
+            count_query = count_query.ilike('name', f'%{search_term}%')
         
-        # Загальна кількість записів (з урахуванням пошуку)
-        # Цей запит виконується до застосування limit/offset для пагінації
-        count_response = query.execute() # Виконуємо окремий запит для count, якщо це ефективніше
-        total_count = count_response.count if count_response.count is not None else 0
-        
-        # Застосовуємо пагінацію для основного запиту
+        count_response = count_query.execute()
+        total_count = count_response.count if hasattr(count_response, 'count') and count_response.count is not None else 0
+
+        # Тепер завантажуємо дані для поточної сторінки
+        items_query = supabase.table('items').select(item_columns_to_select)
+        if search_term:
+            items_query = items_query.ilike('name', f'%{search_term}%')
         if limit is not None and offset is not None:
-            query = query.range(offset, offset + limit - 1)
+            items_query = items_query.range(offset, offset + limit - 1)
         
-        items_response = query.order('id').execute() # Сортуємо для консистентності
-        items_data = items_response.data if items_response.data else []
+        items_response = items_query.order('id').execute()
+        
+        if not hasattr(items_response, 'data'):
+            st.error("Відповідь від Supabase (items) не містить атрибуту 'data'.")
+            return [], 0
+            
+        items_data_raw = items_response.data if items_response.data else []
+        
+        # Фільтруємо, залишаючи тільки словники з валідним 'id'
+        items_data = []
+        item_ids = []
+        for item_dict_raw in items_data_raw:
+            if isinstance(item_dict_raw, dict) and item_dict_raw.get('id') is not None:
+                items_data.append(item_dict_raw)
+                item_ids.append(item_dict_raw['id'])
+            else:
+                print(f"Попередження: пропущено некоректний запис товару: {item_dict_raw}")
 
         if not items_data:
-            return [], total_count # Повертаємо 0, якщо після фільтрації/пагінації нічого немає
+            return [], total_count
 
-        # 2. Збираємо ID товарів для завантаження їх історії продажів
-        item_ids = [item['id'] for item in items_data]
-
-        # 3. Завантажуємо всю історію продажів для цих товарів ОДНИМ запитом
+        # Завантажуємо історію продажів
         sales_data_for_items = []
-        if item_ids:
-            # Вибираємо тільки потрібні колонки з sales
+        if item_ids: # Тільки якщо є ID товарів
             sales_columns_to_select = "id, item_id, quantity_sold, price_per_unit_uah, sale_timestamp"
             sales_response = supabase.table('sales').select(sales_columns_to_select).in_('item_id', item_ids).order('sale_timestamp').execute()
-            sales_data_for_items = sales_response.data if sales_response.data else []
+            if hasattr(sales_response, 'data') and sales_response.data:
+                sales_data_for_items = sales_response.data
+            elif hasattr(sales_response, 'error') and sales_response.error:
+                 st.warning(f"Помилка при завантаженні історії продажів: {sales_response.error}")
 
-        # 4. Розподіляємо історію продажів по товарах
+
         sales_by_item_id = {}
-        for sale in sales_data_for_items:
-            item_id = sale['item_id']
-            if item_id not in sales_by_item_id:
-                sales_by_item_id[item_id] = []
-            sales_by_item_id[item_id].append(sale)
+        for sale_dict_raw in sales_data_for_items:
+            if not isinstance(sale_dict_raw, dict): continue
+            item_id_val = sale_dict_raw.get('item_id')
+            if item_id_val is not None:
+                try:
+                    item_id_int = int(item_id_val)
+                    if item_id_int not in sales_by_item_id:
+                        sales_by_item_id[item_id_int] = []
+                    sales_by_item_id[item_id_int].append(sale_dict_raw)
+                except (ValueError, TypeError):
+                    print(f"Попередження: некоректний item_id в продажу: {sale_dict_raw}")
 
-        # 5. Додаємо історію продажів до кожного товару
-        for item in items_data:
-            item['sales_history'] = sales_by_item_id.get(item['id'], [])
+
+        for item_dict in items_data:
+            item_id_main = item_dict.get('id')
+            if item_id_main is not None:
+                try:
+                    item_id_main_int = int(item_id_main)
+                    item_dict['sales_history'] = sales_by_item_id.get(item_id_main_int, [])
+                except (ValueError, TypeError):
+                    item_dict['sales_history'] = []
+                    print(f"Попередження: неможливо обробити ID основного товару '{item_id_main}' для історії продажів.")
+            else:
+                 item_dict['sales_history'] = []
+
 
         print(f"Завантажено {len(items_data)} товарів (ліміт: {limit}, зсув: {offset}, пошук: '{search_term}'). Загалом знайдено: {total_count}. Завантажено історію продажів.")
         return items_data, total_count
 
     except Exception as e:
-        st.error(f"Помилка завантаження товарів з БД: {e}")
+        st.error(f"Загальна помилка завантаження товарів з БД: {e}")
         return [], 0
 
 def load_sales_history_for_item(item_id):
@@ -125,7 +157,7 @@ def load_sales_history_for_item(item_id):
     try:
         sales_columns_to_select = "id, item_id, quantity_sold, price_per_unit_uah, sale_timestamp"
         response = supabase.table('sales').select(sales_columns_to_select).eq('item_id', item_id).order('sale_timestamp').execute()
-        return response.data if response.data else []
+        return response.data if hasattr(response, 'data') and response.data else []
     except Exception as e:
         print(f"Помилка завантаження історії продажів для товару {item_id}: {e}")
         return []
@@ -138,7 +170,7 @@ def get_item_by_db_id(db_id):
     try:
         item_columns_to_select = "id, name, initial_quantity, cost_uah, customs_uah, description, origin_country, original_currency, cost_original, shipping_original, rate, created_at"
         response = supabase.table('items').select(item_columns_to_select).eq('id', db_id).maybe_single().execute()
-        if response.data:
+        if hasattr(response, 'data') and response.data:
             item = dict(response.data)
             item['sales_history'] = load_sales_history_for_item(item['id'])
             return item
@@ -170,9 +202,9 @@ def get_item_sales_info_cached(item_data):
 def calculate_uah_cost(cost_original, shipping_original, rate):
     """Розраховує вартість в UAH на основі оригінальної вартості та курсу."""
     try:
-        cost = float(cost_original or 0)
-        shipping = float(shipping_original or 0)
-        rate_val = float(rate or 0)
+        cost = float(cost_original or 0.0) # Забезпечуємо float
+        shipping = float(shipping_original or 0.0) # Забезпечуємо float
+        rate_val = float(rate or 0.0) # Забезпечуємо float
         if rate_val > 0:
             return (cost + shipping) * rate_val
         else:
@@ -210,5 +242,8 @@ if 'current_page_view_items' not in st.session_state:
 # --- Головна сторінка ---
 st.title("📊 Програма обліку товарів")
 st.write("Оберіть потрібний розділ на бічній панелі зліва.")
-st.info("Це головна сторінка. Основний функціонал знаходиться в розділах бічного меню.")
+if not supabase:
+    st.warning("Увага: Не вдалося підключитися до бази даних. Функціонал може бути обмежено.")
+else:
+    st.info("Це головна сторінка. Основний функціонал знаходиться в розділах бічного меню.")
 
