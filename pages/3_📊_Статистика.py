@@ -67,9 +67,10 @@ def display_statistics():
         sales_history = item.get('sales_history', [])
 
         if sales_history: # Перевіряємо, чи sales_history не порожній
-            if not entries_with_sales: # Перший запис з продажами
-                 entries_with_sales = 0 # Ініціалізуємо, якщо ще не було
-            entries_with_sales += 1
+            # Ініціалізуємо entries_with_sales, якщо ще не було (хоча це мало б бути зроблено вище, але для безпеки)
+            if entries_with_sales == 0 and item_sold_qty > 0 : entries_with_sales = 0 
+            if item_sold_qty > 0: entries_with_sales +=1
+            
             print(f"  -> Знайдено {len(sales_history)} записів продажів.")
             for sale_index, sale in enumerate(sales_history):
                 try:

@@ -1,10 +1,8 @@
 import streamlit as st
-# from supabase import create_client, Client # Більше не потрібен прямий клієнт тут
+from supabase import create_client, Client
 from datetime import datetime
 import locale
 import os
-import requests # Для HTTP-запитів
-import math # Потрібен для math.ceil у сторінці перегляду
 
 # --- Налаштування сторінки (має бути першою командою Streamlit) ---
 st.set_page_config(layout="wide", page_title="AUDIT Облік")
@@ -31,113 +29,152 @@ else:
         try: return locale.currency(value, symbol='₴', grouping=True)
         except (ValueError, TypeError): return "Помилка"
 
-# --- Налаштування API ---
-# Для локального тестування FastAPI має бути запущений на цьому порту
-# У майбутньому це буде URL вашого розгорнутого FastAPI-сервісу
-API_BASE_URL = "http://127.0.0.1:8000"
+# --- Підключення до Supabase ---
+@st.cache_resource
+def init_supabase_client():
+    """Ініціалізує та повертає клієнт Supabase."""
+    try:
+        SUPABASE_URL = st.secrets["supabase"]["url"]
+        SUPABASE_KEY = st.secrets["supabase"]["key"]
+        print("Спроба підключення до Supabase...")
+        client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        print("Підключення до Supabase успішне.")
+        return client
+    except Exception as e:
+        print(f"Помилка підключення до Supabase: {e}")
+        st.error(f"""
+            **Не вдалося підключитися до бази даних Supabase.**
+            Перевірте налаштування секретів Streamlit та дані проекту Supabase.
+            Помилка: {e}
+        """)
+        return None
 
-# --- Спільні функції для роботи з даними через API ---
+supabase = init_supabase_client() # Створюємо клієнт
+
+# --- Спільні функції для роботи з даними ---
 
 @st.cache_data(ttl=60)
-def load_items_from_api(limit=None, offset=None, search_term=None):
+def load_items_from_db(limit=None, offset=None, search_term=None):
     """
-    Завантажує товари з FastAPI з пагінацією та пошуком.
-    Повертає список товарів та загальну кількість (якщо API це підтримує).
+    Завантажує товари з Supabase з можливістю пагінації та пошуку,
+    оптимізовано для уникнення N+1 запитів для історії продажів.
+    Повертає список товарів для поточної сторінки та загальну кількість товарів, що відповідають критеріям.
     """
-    endpoint = f"{API_BASE_URL}/products/"
-    params = {}
-    if limit is not None:
-        params['limit'] = limit
-    if offset is not None:
-        params['skip'] = offset # FastAPI використовує 'skip'
-    if search_term:
-        params['search'] = search_term
+    if not supabase:
+        st.warning("Підключення до Supabase відсутнє. Неможливо завантажити дані.")
+        return [], 0
 
     try:
-        response = requests.get(endpoint, params=params)
-        response.raise_for_status() # Генерує помилку для кодів 4xx/5xx
-        data = response.json()
+        item_columns_to_select = "id, name, initial_quantity, cost_uah, customs_uah, description, origin_country, original_currency, cost_original, shipping_original, rate, created_at, cost_usd, shipping_usd"
         
-        # Припускаємо, що FastAPI повертає список товарів.
-        # Якщо FastAPI повертає також загальну кількість, потрібно буде її обробити.
-        # Наразі, для простоти, припустимо, що total_count ми не отримуємо від цього ендпоінту,
-        # або він повертає тільки поточну сторінку.
-        # Для коректної пагінації нам потрібен total_count.
-        # Поки що повернемо довжину отриманого списку як total_count для цієї сторінки.
-        # Це потрібно буде вдосконалити на боці FastAPI.
-        items_data = data if isinstance(data, list) else []
-        
-        # ТИМЧАСОВО: Оскільки FastAPI /products/ ще не повертає sales_history,
-        # ми ініціалізуємо його порожнім списком.
-        # Це означає, що розрахунки середньої ціни продажу в таблиці будуть нульовими.
-        for item in items_data:
-            if 'sales_history' not in item:
-                item['sales_history'] = [] # Потрібно для get_item_sales_info_cached
-
-        # TODO: FastAPI /products/ має повертати загальну кількість елементів для коректної пагінації
-        # Поки що, якщо limit є, припускаємо, що total_count може бути більшим.
-        # Це не ідеально, але дозволить UI пагінації працювати.
-        # Краще, щоб FastAPI повертав total_count.
-        # Для простоти, якщо search_term є, ми не можемо знати total_count без окремого запиту.
+        # 1. Отримуємо загальну кількість з урахуванням пошуку
+        count_query = supabase.table('items').select('id', count='exact')
         if search_term:
-            # Якщо є пошук, ми не знаємо загальну кількість без окремого запиту до API
-            # Можна зробити ще один запит до API /products/count?search=... або подібного
-            # Поки що, для простоти, якщо є пошук, total_count буде довжиною поточного результату
-            total_count_for_pagination = len(items_data) if limit is None else (offset + len(items_data) + (ITEMS_PER_PAGE if len(items_data) == ITEMS_PER_PAGE else 0) )
+            count_query = count_query.ilike('name', f'%{search_term}%')
+        
+        count_response = count_query.execute()
+        total_count = count_response.count if hasattr(count_response, 'count') and count_response.count is not None else 0
 
-        elif limit is not None:
-            # Якщо це не остання сторінка, припускаємо, що є ще
-            total_count_for_pagination = offset + len(items_data) + (ITEMS_PER_PAGE if len(items_data) == ITEMS_PER_PAGE else 0)
-        else:
-            total_count_for_pagination = len(items_data)
+        # 2. Завантажуємо дані для поточної сторінки
+        items_query = supabase.table('items').select(item_columns_to_select)
+        if search_term:
+            items_query = items_query.ilike('name', f'%{search_term}%')
+        if limit is not None and offset is not None:
+            items_query = items_query.range(offset, offset + limit - 1)
+        
+        items_response = items_query.order('id').execute()
+        
+        if not hasattr(items_response, 'data'):
+            st.error("Відповідь від Supabase (items) не містить атрибуту 'data'.")
+            return [], 0
+            
+        items_data_raw = items_response.data if items_response.data else []
+        
+        items_data = []
+        item_ids = []
+        for item_dict_raw in items_data_raw:
+            if isinstance(item_dict_raw, dict) and item_dict_raw.get('id') is not None:
+                items_data.append(item_dict_raw)
+                item_ids.append(item_dict_raw['id'])
+            else:
+                print(f"Попередження: пропущено некоректний запис товару: {item_dict_raw}")
 
+        if not items_data:
+            return [], total_count
 
-        print(f"API: Завантажено {len(items_data)} товарів (ліміт: {limit}, зсув: {offset}, пошук: '{search_term}'). Приблизна заг. кількість: {total_count_for_pagination}")
-        return items_data, total_count_for_pagination # Повертаємо список та "загальну кількість"
+        # 3. Завантажуємо історію продажів для завантажених товарів
+        sales_data_for_items = []
+        if item_ids:
+            sales_columns_to_select = "id, item_id, quantity_sold, price_per_unit_uah, sale_timestamp"
+            sales_response = supabase.table('sales').select(sales_columns_to_select).in_('item_id', item_ids).order('sale_timestamp').execute()
+            if hasattr(sales_response, 'data') and sales_response.data:
+                sales_data_for_items = sales_response.data
+            elif hasattr(sales_response, 'error') and sales_response.error:
+                 st.warning(f"Помилка при завантаженні історії продажів: {sales_response.error}")
 
-    except requests.exceptions.RequestException as e:
-        st.error(f"Помилка з'єднання з API при завантаженні товарів: {e}")
-        return [], 0
+        sales_by_item_id = {}
+        for sale_dict_raw in sales_data_for_items:
+            if not isinstance(sale_dict_raw, dict): continue
+            item_id_val = sale_dict_raw.get('item_id')
+            if item_id_val is not None:
+                try:
+                    item_id_int = int(item_id_val)
+                    if item_id_int not in sales_by_item_id:
+                        sales_by_item_id[item_id_int] = []
+                    sales_by_item_id[item_id_int].append(sale_dict_raw)
+                except (ValueError, TypeError):
+                    print(f"Попередження: некоректний item_id в продажу: {sale_dict_raw}")
+
+        for item_dict in items_data:
+            item_id_main = item_dict.get('id')
+            if item_id_main is not None:
+                try:
+                    item_id_main_int = int(item_id_main)
+                    item_dict['sales_history'] = sales_by_item_id.get(item_id_main_int, [])
+                except (ValueError, TypeError):
+                    item_dict['sales_history'] = []
+                    print(f"Попередження: неможливо обробити ID основного товару '{item_id_main}' для історії продажів.")
+            else:
+                 item_dict['sales_history'] = []
+
+        print(f"Завантажено {len(items_data)} товарів (ліміт: {limit}, зсув: {offset}, пошук: '{search_term}'). Загалом знайдено: {total_count}. Завантажено історію продажів.")
+        return items_data, total_count
+
     except Exception as e:
-        st.error(f"Помилка обробки даних з API: {e}")
+        st.error(f"Загальна помилка завантаження товарів з БД: {e}")
         return [], 0
 
+def load_sales_history_for_item(item_id):
+    """Завантажує історію продажів для конкретного товару."""
+    if not supabase:
+        return []
+    try:
+        sales_columns_to_select = "id, item_id, quantity_sold, price_per_unit_uah, sale_timestamp"
+        response = supabase.table('sales').select(sales_columns_to_select).eq('item_id', item_id).order('sale_timestamp').execute()
+        return response.data if hasattr(response, 'data') and response.data else []
+    except Exception as e:
+        print(f"Помилка завантаження історії продажів для товару {item_id}: {e}")
+        return []
 
 @st.cache_data(ttl=300)
-def get_item_by_db_id(db_id): # Назва функції залишається, але логіка змінюється
-    """Завантажує ОДИН товар за його ID через FastAPI."""
-    if db_id is None:
+def get_item_by_db_id(db_id):
+    """Ефективно завантажує ОДИН товар за його ID з бази даних, включаючи історію продажів."""
+    if not supabase:
         return None
-    endpoint = f"{API_BASE_URL}/items/{db_id}"
     try:
-        response = requests.get(endpoint)
-        response.raise_for_status()
-        item_data = response.json()
-        # TODO: FastAPI /items/{id} має повертати sales_history
-        if item_data and 'sales_history' not in item_data:
-            # Якщо FastAPI не повертає історію, ми можемо її завантажити окремо
-            # або залишити порожньою, якщо це обробляється далі
-            item_data['sales_history'] = [] # Тимчасово
-            # item_data['sales_history'] = load_sales_history_for_item_api(db_id) # Потрібен новий ендпоінт
-        return item_data
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 404:
-            print(f"Товар з ID {db_id} не знайдено через API.")
-            return None
-        st.error(f"HTTP помилка при завантаженні товару ID {db_id}: {e}")
-        return None
-    except requests.exceptions.RequestException as e:
-        st.error(f"Помилка з'єднання з API при завантаженні товару ID {db_id}: {e}")
+        item_columns_to_select = "id, name, initial_quantity, cost_uah, customs_uah, description, origin_country, original_currency, cost_original, shipping_original, rate, created_at, cost_usd, shipping_usd"
+        response = supabase.table('items').select(item_columns_to_select).eq('id', db_id).maybe_single().execute()
+        if hasattr(response, 'data') and response.data:
+            item = dict(response.data)
+            item['sales_history'] = load_sales_history_for_item(item['id'])
+            return item
         return None
     except Exception as e:
-        st.error(f"Помилка обробки даних товару ID {db_id} з API: {e}")
+        st.error(f"Помилка завантаження товару ID {db_id} з БД: {e}")
         return None
-
 
 def get_item_sales_info_cached(item_data):
     """Розраховує продану кількість та середню ціну, використовуючи кешовану історію."""
-    # Ця функція залишається такою ж, але тепер вона залежить від того,
-    # чи заповнено 'sales_history' у item_data.
     sales_history = item_data.get('sales_history', [])
     total_sold_qty = 0
     total_sales_value = 0.0
@@ -194,21 +231,15 @@ if 'confirm_delete_sale_id' not in st.session_state:
      st.session_state.confirm_delete_sale_item_id = None
 if 'current_page_view_items' not in st.session_state:
     st.session_state.current_page_view_items = 1
+if 'selected_item_id_for_stats' not in st.session_state: # Додано для статистики
+    st.session_state.selected_item_id_for_stats = None
 
 
 # --- Головна сторінка ---
 st.title("📊 Програма обліку товарів")
 st.write("Оберіть потрібний розділ на бічній панелі зліва.")
-# Перевіряємо, чи є підключення до API (можна зробити тестовий запит)
-try:
-    # Простий тестовий запит до кореневого ендпоінту FastAPI
-    test_response = requests.get(API_BASE_URL, timeout=2)
-    if test_response.status_code == 200:
-        st.info("Це головна сторінка. Основний функціонал знаходиться в розділах бічного меню. API доступний.")
-    else:
-        st.warning(f"API на {API_BASE_URL} відповів зі статусом {test_response.status_code}. Перевірте, чи запущено FastAPI сервер.")
-except requests.exceptions.ConnectionError:
-    st.error(f"Не вдалося підключитися до API за адресою: {API_BASE_URL}. Переконайтеся, що ваш FastAPI сервер запущено локально.")
-except Exception as e:
-    st.error(f"Невідома помилка при спробі з'єднання з API: {e}")
+if not supabase:
+    st.warning("Увага: Не вдалося підключитися до бази даних. Функціонал може бути обмежено.")
+else:
+    st.info("Це головна сторінка. Основний функціонал знаходиться в розділах бічного меню.")
 
