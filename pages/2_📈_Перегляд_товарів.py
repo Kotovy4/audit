@@ -292,7 +292,7 @@ def display_items_view():
 
     with st.spinner("Завантаження товарів..."):
         # Змінюємо виклик на apppp.load_items_from_api
-        items_page_data, total_items_count = apppp.load_items_from_api(limit=ITEMS_PER_PAGE, offset=offset, search_term=search_term)
+        items_page_data, total_items_count = apppp.load_items_from_db(limit=ITEMS_PER_PAGE, offset=offset, search_term=search_term)
     
     total_pages = math.ceil(total_items_count / ITEMS_PER_PAGE) if ITEMS_PER_PAGE > 0 and total_items_count > 0 else 1
     total_pages = max(1, total_pages) # Щоб уникнути 0 сторінок

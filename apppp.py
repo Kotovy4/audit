@@ -3,6 +3,8 @@ from supabase import create_client, Client
 from datetime import datetime
 import locale
 import os
+import requests # Для HTTP-запитів (залишаємо, якщо плануємо повернутися до API)
+import math
 
 # --- Налаштування сторінки (має бути першою командою Streamlit) ---
 st.set_page_config(layout="wide", page_title="AUDIT Облік")
@@ -54,6 +56,7 @@ supabase = init_supabase_client() # Створюємо клієнт
 # --- Спільні функції для роботи з даними ---
 
 @st.cache_data(ttl=60)
+# Переконуємося, що функція називається load_items_from_db
 def load_items_from_db(limit=None, offset=None, search_term=None):
     """
     Завантажує товари з Supabase з можливістю пагінації та пошуку,
@@ -67,7 +70,6 @@ def load_items_from_db(limit=None, offset=None, search_term=None):
     try:
         item_columns_to_select = "id, name, initial_quantity, cost_uah, customs_uah, description, origin_country, original_currency, cost_original, shipping_original, rate, created_at, cost_usd, shipping_usd"
         
-        # 1. Отримуємо загальну кількість з урахуванням пошуку
         count_query = supabase.table('items').select('id', count='exact')
         if search_term:
             count_query = count_query.ilike('name', f'%{search_term}%')
@@ -75,7 +77,6 @@ def load_items_from_db(limit=None, offset=None, search_term=None):
         count_response = count_query.execute()
         total_count = count_response.count if hasattr(count_response, 'count') and count_response.count is not None else 0
 
-        # 2. Завантажуємо дані для поточної сторінки
         items_query = supabase.table('items').select(item_columns_to_select)
         if search_term:
             items_query = items_query.ilike('name', f'%{search_term}%')
@@ -102,7 +103,6 @@ def load_items_from_db(limit=None, offset=None, search_term=None):
         if not items_data:
             return [], total_count
 
-        # 3. Завантажуємо історію продажів для завантажених товарів
         sales_data_for_items = []
         if item_ids:
             sales_columns_to_select = "id, item_id, quantity_sold, price_per_unit_uah, sale_timestamp"
@@ -231,7 +231,7 @@ if 'confirm_delete_sale_id' not in st.session_state:
      st.session_state.confirm_delete_sale_item_id = None
 if 'current_page_view_items' not in st.session_state:
     st.session_state.current_page_view_items = 1
-if 'selected_item_id_for_stats' not in st.session_state: # Додано для статистики
+if 'selected_item_id_for_stats' not in st.session_state:
     st.session_state.selected_item_id_for_stats = None
 
 

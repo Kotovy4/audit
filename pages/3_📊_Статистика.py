@@ -13,7 +13,7 @@ def display_statistics():
 
     # Завантажуємо ВСІ товари для статистики, ігноруючи пагінацію та пошук
     # Розпаковуємо результат: items_data - список товарів, _ - загальна кількість (не використовується тут)
-    items_data, _ = apppp.load_items_from_api(limit=None, offset=None, search_term=None) 
+    items_data, _ = apppp.load_items_from_db(limit=None, offset=None, search_term=None) 
     
     if not items_data:
          st.info("Немає даних для відображення статистики.")
