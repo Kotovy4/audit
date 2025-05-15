@@ -3,8 +3,7 @@ from supabase import create_client, Client
 from datetime import datetime
 import locale
 import os
-import requests # Для HTTP-запитів (залишаємо, якщо плануємо повернутися до API)
-import math
+import math # Додано, оскільки використовується в pages
 
 # --- Налаштування сторінки (має бути першою командою Streamlit) ---
 st.set_page_config(layout="wide", page_title="AUDIT Облік")
@@ -56,7 +55,6 @@ supabase = init_supabase_client() # Створюємо клієнт
 # --- Спільні функції для роботи з даними ---
 
 @st.cache_data(ttl=60)
-# Переконуємося, що функція називається load_items_from_db
 def load_items_from_db(limit=None, offset=None, search_term=None):
     """
     Завантажує товари з Supabase з можливістю пагінації та пошуку,
