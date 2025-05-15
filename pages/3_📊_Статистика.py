@@ -2,16 +2,17 @@ import streamlit as st
 import locale
 # Імпортуємо весь модуль apppp
 try:
-    import apppp
+    import apppp # Головний файл додатку, де знаходяться спільні функції та supabase клієнт
 except ImportError:
     st.error("Помилка імпорту: Не вдалося знайти основний файл 'apppp.py'. Переконайтесь, що він існує в кореневій папці.")
-    st.stop()
+    st.stop() # Зупиняємо виконання, якщо основний файл не знайдено
 
 def display_statistics():
     """Відображає вікно статистики з додатковою діагностикою."""
     # st.subheader("Статистика товарів") # Заголовок тепер береться з назви файлу
 
-    # Виправляємо розпакування результату
+    # Завантажуємо ВСІ товари для статистики, ігноруючи пагінацію та пошук
+    # Розпаковуємо результат: items_data - список товарів, _ - загальна кількість (не використовується тут)
     items_data, _ = apppp.load_items_from_db(limit=None, offset=None, search_term=None) 
     
     if not items_data:
@@ -27,9 +28,14 @@ def display_statistics():
     total_income_actual = 0.0
     unsold_items_cost = 0.0
 
-    print("--- Початок розрахунку статистики ---") # Діагностика
+    print("--- Початок розрахунку статистики (сторінка статистики) ---") # Діагностика
 
     for index, item in enumerate(items_data): # Тепер item - це словник
+        # Перевіряємо, чи item дійсно є словником
+        if not isinstance(item, dict):
+            print(f"Попередження: пропущено некоректний елемент у items_data (не словник): {item}")
+            continue
+
         print(f"\nОбробка товару ID: {item.get('id')}, Назва: {item.get('name', 'Н/Д')}")
 
         # --- Розрахунок витрат для поточного товару ---
@@ -43,7 +49,7 @@ def display_statistics():
             cost_uah_val = float(cost_uah) if cost_uah is not None else 0.0
             customs_uah_val = float(customs_uah) if customs_uah is not None else 0.0
 
-            print(f"  -> Витрати: cost_uah={cost_uah_val}, customs_uah={customs_uah_val}")
+            print(f"  -> Витрати: cost_uah={cost_uah_val}, customs_uah={customs_uah_val}, initial_qty={initial_qty_val}")
 
             item_expense = cost_uah_val + customs_uah_val
             total_expenses += item_expense
@@ -60,7 +66,9 @@ def display_statistics():
         item_income = 0.0
         sales_history = item.get('sales_history', [])
 
-        if sales_history:
+        if sales_history: # Перевіряємо, чи sales_history не порожній
+            if not entries_with_sales: # Перший запис з продажами
+                 entries_with_sales = 0 # Ініціалізуємо, якщо ще не було
             entries_with_sales += 1
             print(f"  -> Знайдено {len(sales_history)} записів продажів.")
             for sale_index, sale in enumerate(sales_history):
@@ -113,6 +121,7 @@ def display_statistics():
 
     st.markdown("---")
     st.markdown("#### Статистика останнього вибраного товару")
+    # Використовуємо selected_item_id, який встановлюється на сторінці Перегляду
     selected_item_id = st.session_state.get('selected_item_id_for_stats', None)
     selected_item_data = None
     if selected_item_id:
@@ -122,7 +131,7 @@ def display_statistics():
         s_initial_qty = selected_item_data.get('initial_quantity', 0)
         s_cost_uah = selected_item_data.get('cost_uah', 0.0)
         s_customs_uah = selected_item_data.get('customs_uah', 0.0)
-        s_sales_history = selected_item_data.get('sales_history', [])
+        # s_sales_history = selected_item_data.get('sales_history', []) # Вже є в selected_item_data
 
         s_cost_uah_val = float(s_cost_uah) if s_cost_uah is not None else 0.0
         s_customs_uah_val = float(s_customs_uah) if s_customs_uah is not None else 0.0
@@ -152,5 +161,7 @@ def display_statistics():
         st.info("Товар не вибрано на сторінці 'Перегляд товарів' для детальної статистики.")
 
 # --- Головна частина сторінки ---
+# Заголовок буде взято з назви файлу "3_📊_Статистика"
+# st.header("📊 Статистика")
 display_statistics()
 

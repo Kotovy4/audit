@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import io # Потрібно для роботи з байтами в пам'яті
+import io
 import math # Для math.ceil
 # Імпортуємо весь модуль apppp
 try:
@@ -29,42 +29,36 @@ def display_edit_item_form(item_data):
     """Відображає форму для редагування товару, включаючи вибір країни."""
     st.subheader(f"Редагувати товар: {item_data.get('name', 'Н/Д')}")
 
-    # Визначаємо поточну країну або країну за замовчуванням (USA)
     current_country = item_data.get('origin_country')
     if not current_country or current_country not in apppp.CURRENCY_SETTINGS: # Додано перевірку на валідність
         current_country = "USA" # Вважаємо, що старі записи або невідомі з США
 
-    # Отримуємо індекс поточної країни для selectbox
     country_options = list(apppp.CURRENCY_SETTINGS.keys())
     try:
         current_country_index = country_options.index(current_country)
     except ValueError:
-        current_country_index = 0 # Якщо збережена країна невалідна, обираємо першу
-        current_country = country_options[0] # Оновлюємо поточну країну
+        current_country_index = 0
+        current_country = country_options[0]
 
-    # Вибір країни - виносимо за межі форми, щоб UI оновлювався
     selected_country = st.selectbox(
         "Країна походження*",
         options=country_options,
         index=current_country_index,
-        key=f"edit_country_select_{item_data['id']}" # Унікальний ключ для selectbox
+        key=f"edit_country_select_{item_data['id']}"
     )
 
-    # Отримуємо налаштування для вибраної країни
     settings = apppp.CURRENCY_SETTINGS[selected_country]
     currency_symbol = settings["symbol"]
     currency_code = settings["code"]
     rate_label = settings["rate_label"]
-    # Беремо курс з БД, якщо він є і не нульовий, інакше - дефолтний для цієї країни
     current_rate = item_data.get('rate')
     default_rate = current_rate if current_rate and float(current_rate) > 0 else settings["default_rate"]
 
 
     with st.form("edit_item_form"):
         name = st.text_input("Назва товару*", value=item_data.get('name', ''), key=f"edit_name_{item_data['id']}")
-        initial_quantity = st.number_input("Початкова кількість*", min_value=1, step=1, value=int(item_data.get('initial_quantity', 1)), key=f"edit_qty_{item_data['id']}")
+        initial_quantity = st.number_input("Початкова кількість*", min_value=1, step=1, value=item_data.get('initial_quantity', 1), key=f"edit_qty_{item_data['id']}")
 
-        # Визначаємо, які значення вартості/доставки показувати
         cost_to_display = item_data.get('cost_original') if item_data.get('origin_country') else item_data.get('cost_usd', 0.0)
         shipping_to_display = item_data.get('shipping_original') if item_data.get('origin_country') else item_data.get('shipping_usd', 0.0)
 
@@ -75,13 +69,12 @@ def display_edit_item_form(item_data):
             min_value=0.01,
             step=0.01,
             format="%.4f",
-            value=float(default_rate), # Використовуємо курс з БД або дефолтний
+            value=float(default_rate),
             key=f"edit_rate_dynamic_{item_data['id']}"
             )
         customs_uah = st.number_input("Митний платіж (грн)", min_value=0.0, step=0.01, format="%.2f", value=float(item_data.get('customs_uah', 0.0)), key=f"edit_customs_{item_data['id']}")
         description = st.text_area("Опис", value=item_data.get('description', ''), key=f"edit_desc_{item_data['id']}")
 
-        # Використовуємо apppp.get_item_sales_info_cached
         sold_qty, _ = apppp.get_item_sales_info_cached(item_data)
         if sold_qty > 0:
             st.caption(f"(Вже продано: {sold_qty} од.)")
@@ -93,19 +86,17 @@ def display_edit_item_form(item_data):
              cancelled = st.form_submit_button("Скасувати")
 
         if submitted:
-            if not apppp.supabase: # Використовуємо apppp.supabase
+            if not apppp.supabase:
                 st.error("Немає підключення до бази даних для збереження змін.")
                 return
 
-            # Валідація
-            if not name or not initial_quantity or cost_original is None or shipping_original is None or not rate: # Перевіряємо None для вартості/доставки
+            if not name or not initial_quantity or cost_original is None or shipping_original is None or not rate:
                 st.warning(f"Будь ласка, заповніть обов'язкові поля: Назва, Початкова к-сть, Вартість ({currency_symbol}), Доставка ({currency_symbol}), {rate_label}.")
                 return
             elif initial_quantity < sold_qty:
                  st.error(f"Нова початкова кількість ({initial_quantity}) не може бути меншою за вже продану ({sold_qty})!")
                  return
 
-            # Використовуємо apppp.calculate_uah_cost
             cost_uah = apppp.calculate_uah_cost(cost_original, shipping_original, rate)
             try:
                 update_data = {
@@ -120,14 +111,13 @@ def display_edit_item_form(item_data):
                     "customs_uah": customs_uah if customs_uah is not None else 0.0,
                     "description": description
                 }
-                # Використовуємо apppp.supabase
                 response = apppp.supabase.table('items').update(update_data).eq('id', item_data['id']).execute()
 
                 if response.data:
                     st.success(f"Дані товару '{name}' оновлено!")
-                    st.cache_data.clear() # Очищуємо кеш, щоб оновити дані
-                    st.session_state.editing_item_id = None # Скидаємо стан редагування
-                    st.rerun() # Перезапускаємо, щоб повернутися до таблиці
+                    st.cache_data.clear()
+                    st.session_state.editing_item_id = None
+                    st.rerun()
                 else:
                     api_error = getattr(response, 'error', None)
                     if api_error:
@@ -143,14 +133,13 @@ def display_edit_item_form(item_data):
             except Exception as e:
                 st.error(f"Помилка бази даних при оновленні товару: {e}")
         if cancelled:
-             st.session_state.editing_item_id = None # Скидаємо стан редагування
-             st.rerun() # Перезапускаємо, щоб повернутися до таблиці
+             st.session_state.editing_item_id = None
+             st.rerun()
 
 def display_sell_item_form(item_data):
     """Відображає форму для продажу одиниць товару."""
     st.subheader(f"Продаж товару: {item_data.get('name', 'Н/Д')}")
     initial_qty = item_data.get('initial_quantity', 0)
-    # Використовуємо apppp.get_item_sales_info_cached
     sold_qty, avg_price = apppp.get_item_sales_info_cached(item_data)
     available_qty = initial_qty - sold_qty
 
@@ -168,11 +157,10 @@ def display_sell_item_form(item_data):
         with col1:
             submitted = st.form_submit_button("Зареєструвати продаж")
         with col2:
-            # Кнопка скасування просто скидає стан продажу
             cancelled = st.form_submit_button("Скасувати")
 
         if submitted:
-            if not apppp.supabase: # Використовуємо apppp.
+            if not apppp.supabase:
                  st.error("Немає підключення до бази даних для реєстрації продажу.")
                  return
 
@@ -183,7 +171,6 @@ def display_sell_item_form(item_data):
             else:
                 try:
                     timestamp = datetime.now().isoformat()
-                    # Використовуємо apppp.
                     response = apppp.supabase.table('sales').insert({
                         "item_id": item_data['id'],
                         "quantity_sold": quantity_to_sell,
@@ -193,17 +180,17 @@ def display_sell_item_form(item_data):
 
                     if response.data:
                         st.success(f"Продано {quantity_to_sell} од. товару '{item_data.get('name', '')}'.")
-                        st.cache_data.clear() # Очищуємо кеш
-                        st.session_state.selling_item_id = None # Скидаємо стан продажу
-                        st.rerun() # Перезапускаємо, щоб повернутися до таблиці
+                        st.cache_data.clear()
+                        st.session_state.selling_item_id = None
+                        st.rerun()
                     else:
                          st.error(f"Помилка при реєстрації продажу: {getattr(response, 'error', 'Невідома помилка')}")
 
                 except Exception as e:
                     st.error(f"Помилка бази даних при реєстрації продажу: {e}")
         if cancelled:
-            st.session_state.selling_item_id = None # Скидаємо стан продажу
-            st.rerun() # Перезапускаємо, щоб повернутися до таблиці
+            st.session_state.selling_item_id = None
+            st.rerun()
 
 def display_sales_history(item_data):
     """Відображає історію продажів для товару та кнопки управління."""
@@ -212,8 +199,7 @@ def display_sales_history(item_data):
 
     if not sales_history:
         st.info("Історія продажів для цього товару порожня.")
-        # Кнопка Назад просто скидає стан перегляду історії
-        if st.button("Назад до списку товарів", key="back_from_empty_history_view"):
+        if st.button("Назад до списку", key="back_from_empty_history"):
             st.session_state.viewing_history_item_id = None
             st.rerun()
         return
@@ -230,7 +216,7 @@ def display_sales_history(item_data):
          history_display_data.append({
              "ID Продажу": sale['id'],
              "Кількість": sale.get('quantity_sold', 0),
-             "Ціна за од. (₴)": apppp.format_currency(sale.get('price_per_unit_uah', 0.0)), # Використовуємо apppp.
+             "Ціна за од. (₴)": apppp.format_currency(sale.get('price_per_unit_uah', 0.0)),
              "Дата/Час": timestamp_display
          })
 
@@ -238,70 +224,62 @@ def display_sales_history(item_data):
     st.dataframe(df_history, hide_index=True, use_container_width=True)
 
     st.write("Дії з вибраним продажем:")
-    sale_options = {sale['id']: f"ID: {sale['id']} ({sale.get('quantity_sold', 0)} од. по {apppp.format_currency(sale.get('price_per_unit_uah', 0.0))})" for sale in sales_history} # Використовуємо apppp.
+    sale_options = {sale['id']: f"ID: {sale['id']} ({sale.get('quantity_sold', 0)} од. по {apppp.format_currency(sale.get('price_per_unit_uah', 0.0))})" for sale in sales_history}
     selected_sale_id_str = st.selectbox(
          "Виберіть продаж",
          options=list(sale_options.keys()),
          format_func=lambda x: sale_options.get(x, "Невідомий ID"),
          index=0,
-         key="sale_selector_view", # Унікальний ключ
+         key="sale_selector",
          label_visibility="collapsed"
     )
     selected_sale_id = int(selected_sale_id_str) if selected_sale_id_str else None
 
     col1, col2, col3 = st.columns([1,1,4])
     with col1:
-         # Кнопка редагування встановлює відповідний стан
-         if st.button("Редагувати", key="edit_sale_btn_view", disabled=selected_sale_id is None):
+         if st.button("Редагувати", key="edit_sale_btn", disabled=selected_sale_id is None):
              st.session_state.editing_sale_id = selected_sale_id
-             st.session_state.editing_sale_item_id = item_data['id'] # Зберігаємо ID товару
-             st.rerun() # Перезапуск покаже форму редагування продажу (на цій же сторінці)
+             st.session_state.editing_sale_item_id = item_data['id']
+             st.rerun()
     with col2:
-        if st.button("Видалити", key="delete_sale_btn_view", disabled=selected_sale_id is None):
-             # Встановлюємо стан для підтвердження видалення
+        if st.button("Видалити", key="delete_sale_btn", disabled=selected_sale_id is None):
              st.session_state.confirm_delete_sale_id = selected_sale_id
              st.session_state.confirm_delete_sale_item_id = item_data['id']
-             st.rerun() # Перезапуск покаже запит на підтвердження
+             st.rerun()
 
     # --- Підтвердження видалення продажу ---
     if 'confirm_delete_sale_id' in st.session_state and st.session_state.confirm_delete_sale_id is not None:
-        # Перевіряємо, чи ID товару все ще той самий (про всяк випадок)
         if st.session_state.confirm_delete_sale_item_id == item_data['id']:
             sale_id_to_delete = st.session_state.confirm_delete_sale_id
             st.warning(f"**Ви впевнені, що хочете видалити запис про продаж ID: {sale_id_to_delete}?**")
             c1, c2, _ = st.columns([1,1,5])
-            if c1.button("Так, видалити продаж", key="confirm_delete_sale_yes_view"):
+            if c1.button("Так, видалити продаж", key="confirm_delete_sale_yes"):
                 item_id_for_update = st.session_state.confirm_delete_sale_item_id
-                # Скидаємо стан підтвердження ДО операції з БД
                 st.session_state.confirm_delete_sale_id = None
                 st.session_state.confirm_delete_sale_item_id = None
-                if not apppp.supabase: # Використовуємо apppp.
+                if not apppp.supabase:
                      st.error("Немає підключення до бази даних для видалення продажу.")
                      return
                 try:
-                    # Використовуємо apppp.
                     response = apppp.supabase.table('sales').delete().eq('id', sale_id_to_delete).execute()
                     st.success(f"Запис про продаж ID: {sale_id_to_delete} видалено.")
-                    st.cache_data.clear() # Очищуємо кеш
-                    # Залишаємось на сторінці історії, просто оновлюємо її
+                    st.cache_data.clear()
                     st.session_state.viewing_history_item_id = item_id_for_update
                     st.rerun()
                 except Exception as e:
                     st.error(f"Помилка видалення продажу з БД: {e}")
 
-            if c2.button("Ні, скасувати", key="confirm_delete_sale_no_view"):
+            if c2.button("Ні, скасувати", key="confirm_delete_sale_no"):
                 st.session_state.confirm_delete_sale_id = None
                 st.session_state.confirm_delete_sale_item_id = None
                 st.rerun()
         else:
-             # Якщо ID товару змінився, поки було відкрито підтвердження, скидаємо стан
              st.session_state.confirm_delete_sale_id = None
              st.session_state.confirm_delete_sale_item_id = None
 
-    # Кнопка Назад до списку товарів
-    if st.button("Назад до списку товарів", key="back_from_history_view"):
-        st.session_state.viewing_history_item_id = None # Скидаємо стан
-        st.rerun() # Перезапуск поверне до таблиці
+    if st.button("Назад до списку товарів", key="back_from_history"):
+        st.session_state.viewing_history_item_id = None
+        st.rerun()
 
 def display_edit_sale_form(item_data, sale_data):
     """Відображає форму для редагування конкретного продажу."""
@@ -336,11 +314,10 @@ def display_edit_sale_form(item_data, sale_data):
         with col1:
             submitted = st.form_submit_button("Зберегти зміни продажу")
         with col2:
-            # Кнопка скасування скидає стан редагування продажу
             cancelled = st.form_submit_button("Скасувати редагування")
 
         if submitted:
-            if not apppp.supabase: # Використовуємо apppp.
+            if not apppp.supabase:
                  st.error("Немає підключення до бази даних для збереження змін продажу.")
                  return
             if not quantity_sold or price_per_unit is None:
@@ -349,7 +326,6 @@ def display_edit_sale_form(item_data, sale_data):
                  st.error(f"Нова кількість ({quantity_sold}) перевищує максимально допустиму ({max_allowed_here}) для цього продажу.")
             else:
                 try:
-                    # Використовуємо apppp.
                     response = apppp.supabase.table('sales').update({
                         "quantity_sold": quantity_sold,
                         "price_per_unit_uah": price_per_unit
@@ -357,11 +333,10 @@ def display_edit_sale_form(item_data, sale_data):
 
                     if response.data:
                         st.success(f"Дані продажу ID: {sale_data['id']} оновлено.")
-                        st.cache_data.clear() # Очищуємо кеш
-                        # Скидаємо стан редагування продажу і повертаємось до історії
+                        st.cache_data.clear()
                         st.session_state.editing_sale_id = None
                         st.session_state.editing_sale_item_id = None
-                        st.session_state.viewing_history_item_id = item_data['id'] # Залишаємо ID товару
+                        st.session_state.viewing_history_item_id = item_data['id']
                         st.rerun()
                     else:
                          st.error(f"Помилка при оновленні продажу: {getattr(response, 'error', 'Невідома помилка')}")
@@ -370,10 +345,9 @@ def display_edit_sale_form(item_data, sale_data):
                     st.error(f"Помилка бази даних при оновленні продажу: {e}")
 
         if cancelled:
-            # Скидаємо стан редагування продажу і повертаємось до історії
             st.session_state.editing_sale_id = None
             st.session_state.editing_sale_item_id = None
-            st.session_state.viewing_history_item_id = item_data['id'] # Залишаємо ID товару
+            st.session_state.viewing_history_item_id = item_data['id']
             st.rerun()
 
 # --- Основна функція для відображення списку товарів та кнопок ---
@@ -381,7 +355,6 @@ def display_items_view():
     """Відображає список товарів, фільтри, пошук та кнопки дій."""
     ITEMS_PER_PAGE = 20 # Кількість товарів на сторінці
 
-    # Ініціалізація поточної сторінки, якщо її немає в стані
     if 'current_page_view_items' not in st.session_state:
         st.session_state.current_page_view_items = 1
 
@@ -411,13 +384,13 @@ def display_items_view():
         key="column_selector_view_items"
     )
     
-    # --- Логіка пагінації ---
     current_page = st.session_state.current_page_view_items
     offset = (current_page - 1) * ITEMS_PER_PAGE
 
-    # Додаємо st.spinner під час завантаження даних
     with st.spinner("Завантаження товарів..."):
-        items_page_data, total_items_count = apppp.load_items_from_db(limit=ITEMS_PER_PAGE, offset=offset, search_term=search_term)
+        # Використовуємо apppp.load_items_from_api (якщо ви перейменували функцію)
+        # або apppp.load_items_from_db (якщо назва залишилася старою)
+        items_page_data, total_items_count = apppp.load_items_from_api(limit=ITEMS_PER_PAGE, offset=offset, search_term=search_term)
     
     total_pages = math.ceil(total_items_count / ITEMS_PER_PAGE) if ITEMS_PER_PAGE > 0 else 1
     total_pages = max(1, total_pages)
@@ -644,4 +617,3 @@ elif st.session_state.get('viewing_history_item_id') is not None:
 # Якщо жоден з режимів не активний, показуємо таблицю товарів
 else:
     display_items_view()
-
