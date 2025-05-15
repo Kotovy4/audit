@@ -86,52 +86,12 @@ def display_edit_item_form(item_data):
              cancelled = st.form_submit_button("Скасувати")
 
         if submitted:
-            if not apppp.supabase:
-                st.error("Немає підключення до бази даних для збереження змін.")
-                return
-
-            if not name or not initial_quantity or cost_original is None or shipping_original is None or not rate:
-                st.warning(f"Будь ласка, заповніть обов'язкові поля: Назва, Початкова к-сть, Вартість ({currency_symbol}), Доставка ({currency_symbol}), {rate_label}.")
-                return
-            elif initial_quantity < sold_qty:
-                 st.error(f"Нова початкова кількість ({initial_quantity}) не може бути меншою за вже продану ({sold_qty})!")
-                 return
-
-            cost_uah = apppp.calculate_uah_cost(cost_original, shipping_original, rate)
-            try:
-                update_data = {
-                    "name": name,
-                    "initial_quantity": initial_quantity,
-                    "origin_country": selected_country,
-                    "original_currency": currency_code,
-                    "cost_original": cost_original,
-                    "shipping_original": shipping_original,
-                    "rate": rate,
-                    "cost_uah": cost_uah,
-                    "customs_uah": customs_uah if customs_uah is not None else 0.0,
-                    "description": description
-                }
-                response = apppp.supabase.table('items').update(update_data).eq('id', item_data['id']).execute()
-
-                if response.data:
-                    st.success(f"Дані товару '{name}' оновлено!")
-                    st.cache_data.clear()
-                    st.session_state.editing_item_id = None
-                    st.rerun()
-                else:
-                    api_error = getattr(response, 'error', None)
-                    if api_error:
-                         st.error(f"Помилка при оновленні товару в БД: {api_error}")
-                    elif hasattr(response, 'status_code') and response.status_code >= 400:
-                         st.error(f"Помилка при оновленні товару: HTTP {response.status_code}")
-                    else:
-                         st.warning("Оновлення товару не повернуло даних, але й не повідомило про помилку.")
-                         st.cache_data.clear()
-                         st.session_state.editing_item_id = None
-                         st.rerun()
-
-            except Exception as e:
-                st.error(f"Помилка бази даних при оновленні товару: {e}")
+            # TODO: Оновити логіку збереження для роботи через FastAPI
+            st.warning("Функціонал збереження змін через API ще не реалізовано.")
+            # if not apppp.supabase:
+            #     st.error("Немає підключення до бази даних для збереження змін.")
+            #     return
+            # ... (стара логіка збереження) ...
         if cancelled:
              st.session_state.editing_item_id = None
              st.rerun()
@@ -160,34 +120,10 @@ def display_sell_item_form(item_data):
             cancelled = st.form_submit_button("Скасувати")
 
         if submitted:
-            if not apppp.supabase:
-                 st.error("Немає підключення до бази даних для реєстрації продажу.")
-                 return
-
-            if not quantity_to_sell or unit_sell_price is None:
-                st.warning("Вкажіть кількість та ціну продажу.")
-            elif quantity_to_sell > available_qty:
-                 st.error(f"Кількість для продажу ({quantity_to_sell}) не може перевищувати доступну ({available_qty}).")
-            else:
-                try:
-                    timestamp = datetime.now().isoformat()
-                    response = apppp.supabase.table('sales').insert({
-                        "item_id": item_data['id'],
-                        "quantity_sold": quantity_to_sell,
-                        "price_per_unit_uah": unit_sell_price,
-                        "sale_timestamp": timestamp
-                    }).execute()
-
-                    if response.data:
-                        st.success(f"Продано {quantity_to_sell} од. товару '{item_data.get('name', '')}'.")
-                        st.cache_data.clear()
-                        st.session_state.selling_item_id = None
-                        st.rerun()
-                    else:
-                         st.error(f"Помилка при реєстрації продажу: {getattr(response, 'error', 'Невідома помилка')}")
-
-                except Exception as e:
-                    st.error(f"Помилка бази даних при реєстрації продажу: {e}")
+            # TODO: Оновити логіку реєстрації продажу для роботи через FastAPI
+            st.warning("Функціонал реєстрації продажу через API ще не реалізовано.")
+            # if not apppp.supabase:
+            # ... (стара логіка збереження) ...
         if cancelled:
             st.session_state.selling_item_id = None
             st.rerun()
@@ -195,11 +131,13 @@ def display_sell_item_form(item_data):
 def display_sales_history(item_data):
     """Відображає історію продажів для товару та кнопки управління."""
     st.subheader(f"Історія продажів: {item_data.get('name', 'Н/Д')}")
+    # Історія продажів тепер має бути вже в item_data, завантажена load_items_from_api
     sales_history = item_data.get('sales_history', [])
+
 
     if not sales_history:
         st.info("Історія продажів для цього товару порожня.")
-        if st.button("Назад до списку", key="back_from_empty_history"):
+        if st.button("Назад до списку", key="back_from_empty_history_view"):
             st.session_state.viewing_history_item_id = None
             st.rerun()
         return
@@ -208,13 +146,14 @@ def display_sales_history(item_data):
     for sale in sales_history:
          timestamp_display = "Н/Д"
          try:
-             dt_object = datetime.fromisoformat(sale.get('sale_timestamp', ''))
+             # Припускаємо, що FastAPI повертає sale_timestamp як рядок ISO
+             dt_object = datetime.fromisoformat(str(sale.get('sale_timestamp', '')))
              timestamp_display = dt_object.strftime('%Y-%m-%d %H:%M:%S')
          except (TypeError, ValueError):
              timestamp_display = str(sale.get('sale_timestamp', 'Н/Д'))
 
          history_display_data.append({
-             "ID Продажу": sale['id'],
+             "ID Продажу": sale.get('id', 'Н/Д'), # ID продажу з таблиці sales
              "Кількість": sale.get('quantity_sold', 0),
              "Ціна за од. (₴)": apppp.format_currency(sale.get('price_per_unit_uah', 0.0)),
              "Дата/Час": timestamp_display
@@ -230,19 +169,19 @@ def display_sales_history(item_data):
          options=list(sale_options.keys()),
          format_func=lambda x: sale_options.get(x, "Невідомий ID"),
          index=0,
-         key="sale_selector",
+         key="sale_selector_view",
          label_visibility="collapsed"
     )
     selected_sale_id = int(selected_sale_id_str) if selected_sale_id_str else None
 
     col1, col2, col3 = st.columns([1,1,4])
     with col1:
-         if st.button("Редагувати", key="edit_sale_btn", disabled=selected_sale_id is None):
+         if st.button("Редагувати", key="edit_sale_btn_view", disabled=selected_sale_id is None):
              st.session_state.editing_sale_id = selected_sale_id
              st.session_state.editing_sale_item_id = item_data['id']
              st.rerun()
     with col2:
-        if st.button("Видалити", key="delete_sale_btn", disabled=selected_sale_id is None):
+        if st.button("Видалити", key="delete_sale_btn_view", disabled=selected_sale_id is None):
              st.session_state.confirm_delete_sale_id = selected_sale_id
              st.session_state.confirm_delete_sale_item_id = item_data['id']
              st.rerun()
@@ -253,23 +192,11 @@ def display_sales_history(item_data):
             sale_id_to_delete = st.session_state.confirm_delete_sale_id
             st.warning(f"**Ви впевнені, що хочете видалити запис про продаж ID: {sale_id_to_delete}?**")
             c1, c2, _ = st.columns([1,1,5])
-            if c1.button("Так, видалити продаж", key="confirm_delete_sale_yes"):
-                item_id_for_update = st.session_state.confirm_delete_sale_item_id
-                st.session_state.confirm_delete_sale_id = None
-                st.session_state.confirm_delete_sale_item_id = None
-                if not apppp.supabase:
-                     st.error("Немає підключення до бази даних для видалення продажу.")
-                     return
-                try:
-                    response = apppp.supabase.table('sales').delete().eq('id', sale_id_to_delete).execute()
-                    st.success(f"Запис про продаж ID: {sale_id_to_delete} видалено.")
-                    st.cache_data.clear()
-                    st.session_state.viewing_history_item_id = item_id_for_update
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Помилка видалення продажу з БД: {e}")
-
-            if c2.button("Ні, скасувати", key="confirm_delete_sale_no"):
+            if c1.button("Так, видалити продаж", key="confirm_delete_sale_yes_view"):
+                # TODO: Оновити логіку видалення продажу через FastAPI
+                st.warning("Функціонал видалення продажу через API ще не реалізовано.")
+                # ... (стара логіка) ...
+            if c2.button("Ні, скасувати", key="confirm_delete_sale_no_view"):
                 st.session_state.confirm_delete_sale_id = None
                 st.session_state.confirm_delete_sale_item_id = None
                 st.rerun()
@@ -277,7 +204,7 @@ def display_sales_history(item_data):
              st.session_state.confirm_delete_sale_id = None
              st.session_state.confirm_delete_sale_item_id = None
 
-    if st.button("Назад до списку товарів", key="back_from_history"):
+    if st.button("Назад до списку товарів", key="back_from_history_view"):
         st.session_state.viewing_history_item_id = None
         st.rerun()
 
@@ -317,33 +244,9 @@ def display_edit_sale_form(item_data, sale_data):
             cancelled = st.form_submit_button("Скасувати редагування")
 
         if submitted:
-            if not apppp.supabase:
-                 st.error("Немає підключення до бази даних для збереження змін продажу.")
-                 return
-            if not quantity_sold or price_per_unit is None:
-                st.warning("Вкажіть кількість та ціну.")
-            elif quantity_sold > max_allowed_here:
-                 st.error(f"Нова кількість ({quantity_sold}) перевищує максимально допустиму ({max_allowed_here}) для цього продажу.")
-            else:
-                try:
-                    response = apppp.supabase.table('sales').update({
-                        "quantity_sold": quantity_sold,
-                        "price_per_unit_uah": price_per_unit
-                    }).eq('id', sale_data['id']).execute()
-
-                    if response.data:
-                        st.success(f"Дані продажу ID: {sale_data['id']} оновлено.")
-                        st.cache_data.clear()
-                        st.session_state.editing_sale_id = None
-                        st.session_state.editing_sale_item_id = None
-                        st.session_state.viewing_history_item_id = item_data['id']
-                        st.rerun()
-                    else:
-                         st.error(f"Помилка при оновленні продажу: {getattr(response, 'error', 'Невідома помилка')}")
-
-                except Exception as e:
-                    st.error(f"Помилка бази даних при оновленні продажу: {e}")
-
+            # TODO: Оновити логіку редагування продажу через FastAPI
+            st.warning("Функціонал редагування продажу через API ще не реалізовано.")
+            # ... (стара логіка) ...
         if cancelled:
             st.session_state.editing_sale_id = None
             st.session_state.editing_sale_item_id = None
@@ -353,7 +256,7 @@ def display_edit_sale_form(item_data, sale_data):
 # --- Основна функція для відображення списку товарів та кнопок ---
 def display_items_view():
     """Відображає список товарів, фільтри, пошук та кнопки дій."""
-    ITEMS_PER_PAGE = 20 # Кількість товарів на сторінці
+    ITEMS_PER_PAGE = 20
 
     if 'current_page_view_items' not in st.session_state:
         st.session_state.current_page_view_items = 1
@@ -388,12 +291,11 @@ def display_items_view():
     offset = (current_page - 1) * ITEMS_PER_PAGE
 
     with st.spinner("Завантаження товарів..."):
-        # Використовуємо apppp.load_items_from_api (якщо ви перейменували функцію)
-        # або apppp.load_items_from_db (якщо назва залишилася старою)
+        # Змінюємо виклик на apppp.load_items_from_api
         items_page_data, total_items_count = apppp.load_items_from_api(limit=ITEMS_PER_PAGE, offset=offset, search_term=search_term)
     
-    total_pages = math.ceil(total_items_count / ITEMS_PER_PAGE) if ITEMS_PER_PAGE > 0 else 1
-    total_pages = max(1, total_pages)
+    total_pages = math.ceil(total_items_count / ITEMS_PER_PAGE) if ITEMS_PER_PAGE > 0 and total_items_count > 0 else 1
+    total_pages = max(1, total_pages) # Щоб уникнути 0 сторінок
 
     filtered_items_on_page = []
     for item in items_page_data:
@@ -536,18 +438,10 @@ def display_items_view():
              if c1.button("Так, видалити", key="confirm_delete_yes_view"):
                   db_id_to_delete = st.session_state.confirm_delete_id
                   st.session_state.confirm_delete_id = None
-                  if not apppp.supabase:
-                      st.error("Немає підключення до бази даних для видалення.")
-                      return
-                  try:
-                      response = apppp.supabase.table('items').delete().eq('id', db_id_to_delete).execute()
-                      st.success(f"Товар '{display_delete_name}' видалено.")
-                      st.cache_data.clear()
-                      st.session_state.selected_item_id = None
-                      st.rerun()
-                  except Exception as e:
-                      st.error(f"Помилка видалення з БД: {e}")
-
+                  # TODO: Оновити логіку видалення через FastAPI
+                  st.warning("Функціонал видалення через API ще не реалізовано.")
+                  # if not apppp.supabase:
+                  # ... (стара логіка) ...
              if c2.button("Ні, скасувати", key="confirm_delete_no_view"):
                   st.session_state.confirm_delete_id = None
                   st.rerun()
@@ -617,3 +511,4 @@ elif st.session_state.get('viewing_history_item_id') is not None:
 # Якщо жоден з режимів не активний, показуємо таблицю товарів
 else:
     display_items_view()
+
